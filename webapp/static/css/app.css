@@ -197,3 +197,17 @@ input[type=range]::-moz-range-thumb{width:15px;height:15px;border:none;border-ra
 /* inline status colors (used by the AI Models panel) */
 .ok{color:var(--ok)}
 .no{color:#e5674b}
+
+/* right-panel tab panes + text inputs */
+.pane{animation:fade .15s ease}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.inp2{width:100%;background:var(--panel3);border:1px solid var(--line2);color:var(--txt);
+  border-radius:7px;padding:8px 10px;font-size:12px;font-family:inherit}
+.inp2:focus{outline:none;border-color:var(--accent)}
+.inp2.ta{resize:vertical;min-height:52px;line-height:1.4}
+.page-row{display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.page-row .pr-thumb{width:64px;height:40px;border-radius:5px;flex:0 0 64px;object-fit:cover}
+.page-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.page-grid .g-item{background:var(--panel3);border:1px solid var(--line);border-radius:8px;overflow:hidden;cursor:pointer}
+.page-grid .g-item img{width:100%;height:80px;object-fit:cover;display:block}
+.page-grid .g-cap{padding:6px 8px;font-size:10.5px;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

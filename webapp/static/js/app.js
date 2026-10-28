@@ -145,6 +145,7 @@
       $("#shName").textContent = "No scene selected";
       $("#shDur").textContent = "—";
       const sh0 = $(".sh-thumb"); sh0.className = "sh-thumb"; sh0.innerHTML = "";
+      $("#capInput").value = ""; $("#narrInput").value = "";
       renderScenes();
       return;
     }
@@ -160,13 +161,18 @@
     } else {
       frame.className = "pv-frame " + s.grad; frame.style.display = "block";
     }
-    $("#pvCaption").textContent = s.caption;
-    // right panel
-    $("#shName").textContent = `${s.title} - ${s.name}`;
+    // Only show a caption on the preview if the user typed one.
+    $("#pvCaption").textContent = s.caption || "";
+    // right panel header
+    $("#shName").textContent = s.title;
     $("#shDur").textContent = fmt(s.dur).slice(3);
     const sh = $(".sh-thumb");
     sh.className = "sh-thumb " + sceneThumbClass(s);
     sh.innerHTML = sceneThumbHTML(s);
+    // Scene tab editors
+    $("#capInput").value = s.caption || "";
+    $("#narrInput").value = s.narration || "";
+    // Motion tab
     $("#kbToggle").checked = s.kenburns;
     $("#zoom").value = s.zoom; $("#zoomVal").textContent = s.zoom.toFixed(2);
     $("#pan").value = s.pan; $("#panVal").textContent = ["Slow", "Medium", "Fast"][s.pan];
@@ -183,7 +189,9 @@
     }
     const n = state.scenes.length + 1;
     state.scenes.push({
-      id: n, title: "Scene " + n, name: m.name, caption: m.name,
+      // Caption + narration start EMPTY so the filename is never shown on the
+      // video; the user types what they want in the Scene tab.
+      id: n, title: "Scene " + n, name: m.name, caption: "",
       narration: "", dur: Math.max(3, Math.min(10, m.dur || 5)),
       zoom: 1.12, pan: 0, kenburns: m.kind === "image",
       mediaId: mid, grad: GRADS[(n - 1) % 4],
@@ -199,8 +207,10 @@
       n.classList.add("active");
       const view = n.dataset.view;
       if (view === "models") { loadModels(); $("#modelsModal").classList.add("show"); }
+      else { openPage(view); }
     });
     $("#modelsClose").onclick = () => $("#modelsModal").classList.remove("show");
+    $("#pageClose").onclick = () => $("#pageModal").classList.remove("show");
     $$("#mediaTabs .tab").forEach(t => t.onclick = () => {
       $$("#mediaTabs .tab").forEach(x => x.classList.remove("active"));
       t.classList.add("active"); state.mediaTab = t.dataset.tab; renderMedia();
@@ -208,7 +218,13 @@
     $$("#propTabs .ptab").forEach(t => t.onclick = () => {
       $$("#propTabs .ptab").forEach(x => x.classList.remove("active"));
       t.classList.add("active");
+      const pane = t.dataset.ptab;   // scene | motion | voice | subs
+      ["scene", "motion", "voice", "subs"].forEach(p =>
+        $("#pane-" + p).style.display = (p === pane) ? "block" : "none");
     });
+    // Caption + narration editing (Scene tab).
+    $("#capInput").oninput = e => { const s = curScene(); if (s) { s.caption = e.target.value; $("#pvCaption").textContent = e.target.value; } };
+    $("#narrInput").oninput = e => { const s = curScene(); if (s) s.narration = e.target.value; };
     $("#kbToggle").onchange = (e) => {
       const s = curScene(); if (!s) return;
       s.kenburns = e.target.checked;
@@ -435,6 +451,7 @@
     $("#ovBar").style.width = Math.min(100, pct) + "%";
   }
   function doneOverlay(url, path, audio, subs, dur) {
+    state.lastOutput = { url, path };
     $("#ovSpinner").classList.add("hide");
     $("#ovTitle").textContent = "✓ Render complete";
     $("#ovSub").textContent = `Validated MP4 · ${dur ? dur.toFixed(1) + "s" : ""}` +
@@ -534,6 +551,133 @@
       body: JSON.stringify({ key }),
     });
     loadModels();   // starts polling
+  }
+
+  // ---- Left-nav pages ------------------------------------------------
+  function showPage(title, bodyHTML) {
+    $("#pageTitle").textContent = title;
+    $("#pageBody").innerHTML = bodyHTML;
+    $("#pageModal").classList.add("show");
+  }
+  const esc = (s) => (s || "").replace(/[&<>"]/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  function openPage(view) {
+    if (view === "projects") {
+      showPage("Project",
+        `<div class="fl2">Project name</div>
+         <input class="inp2" id="pgProjName" value="${esc(state.project)}">
+         <div class="page-row" style="margin-top:12px">
+           <div><b>${state.scenes.length}</b> scene(s) · <b>${fmt(totalDur())}</b> · ${state.exp.res} · ${state.exp.fps}</div>
+         </div>
+         <div style="margin-top:14px;display:flex;gap:8px">
+           <button class="btn primary sm" id="pgSave">Save name</button>
+           <button class="btn ghost sm" id="pgNew">New project (clear)</button>
+         </div>`);
+      $("#pgSave").onclick = () => {
+        state.project = $("#pgProjName").value || "Untitled";
+        $("#projectName").textContent = state.project;
+        $(".cp-name").textContent = state.project;
+        $("#pageModal").classList.remove("show");
+      };
+      $("#pgNew").onclick = () => {
+        if (!confirm("Start a new empty project? Current scenes are cleared.")) return;
+        state.scenes = []; state.media = []; state.selected = -1; state.audioId = null;
+        renderMedia(); renderScenes(); renderTimeline(); selectScene(-1);
+        $("#pageModal").classList.remove("show");
+      };
+    } else if (view === "media") {
+      const grid = state.media.length
+        ? `<div class="page-grid">` + state.media.map(m => `
+            <div class="g-item" data-mid="${m.id}" title="Add as scene">
+              ${m.kind === "audio" ? `<div style="height:80px;display:grid;place-items:center;background:var(--panel)">♪</div>`
+                : `<img src="${m.thumb || m.url}" alt="">`}
+              <div class="g-cap">${esc(m.name)}</div></div>`).join("") + `</div>`
+        : `<div class="empty">No media yet.</div>`;
+      showPage("Media Library",
+        `<button class="btn primary sm" id="pgImport">+ Import photos / audio / video</button>
+         <div style="margin-top:14px">${grid}</div>`);
+      $("#pgImport").onclick = () => { $("#pageModal").classList.remove("show"); doImport(); };
+      $$("#pageBody .g-item").forEach(it => it.onclick = () => {
+        addSceneFromMedia(it.dataset.mid); $("#pageModal").classList.remove("show");
+      });
+    } else if (view === "scenes") {
+      const list = state.scenes.length
+        ? state.scenes.map((s, i) => {
+          const m = mediaById(s.mediaId);
+          return `<div class="page-row">
+            ${m ? `<img class="pr-thumb" src="${m.thumb || m.url}">` : `<div class="pr-thumb ${s.grad}"></div>`}
+            <div style="flex:1"><b>Scene ${i + 1}</b> · ${s.dur.toFixed(1)}s
+              <div class="mi-sub">${esc(s.caption || s.narration || "(no caption)")}</div></div>
+            <button class="btn ghost sm" data-sel="${i}">Edit</button>
+            <button class="btn ghost sm" data-del="${i}">Delete</button></div>`;
+        }).join("")
+        : `<div class="empty">No scenes yet. Import a photo to create one.</div>`;
+      showPage("Scenes", list);
+      $$("#pageBody [data-sel]").forEach(b => b.onclick = () => {
+        selectScene(+b.dataset.sel); $("#pageModal").classList.remove("show");
+      });
+      $$("#pageBody [data-del]").forEach(b => b.onclick = () => {
+        state.scenes.splice(+b.dataset.del, 1);
+        state.scenes.forEach((s, i) => s.title = "Scene " + (i + 1));
+        renderScenes(); renderTimeline();
+        selectScene(state.scenes.length ? 0 : -1);
+        openPage("scenes");
+      });
+    } else if (view === "voice") {
+      const opts = state.voices.length
+        ? state.voices.map(v => `<option>${esc(v)}</option>`).join("")
+        : `<option>No voice installed</option>`;
+      showPage("Voice Studio",
+        `<div class="fl2">Installed voice</div>
+         <select class="select" id="pgVoice">${opts}</select>
+         <div class="field" style="margin-top:12px"><div class="fl"><span>Speed</span><b id="pgVsVal">${state.vspeed.toFixed(1)}x</b></div>
+           <input type="range" id="pgVs" min="0.5" max="2" step="0.1" value="${state.vspeed}"></div>
+         <div style="margin-top:10px"><button class="btn ghost sm" id="pgTest">&#9834; Test voice</button>
+           <button class="btn primary sm" id="pgGetVoice">Download a voice…</button></div>
+         <div class="fl2" style="margin-top:12px">${state.voices.length
+            ? "Voice ready. It will narrate each scene's narration text."
+            : "No voice installed yet. Click ‘Download a voice’ to enable narration."}</div>`);
+      $("#pgVs").oninput = e => { state.vspeed = parseFloat(e.target.value); $("#pgVsVal").textContent = state.vspeed.toFixed(1) + "x"; };
+      $("#pgTest").onclick = testVoice;
+      $("#pgGetVoice").onclick = () => { $("#pageModal").classList.remove("show"); loadModels(); $("#modelsModal").classList.add("show"); };
+    } else if (view === "identity") {
+      showPage("Identity &amp; Motion",
+        `<div class="status-card info" style="margin:0 0 12px">
+           <span class="sc-ic">&#9432;</span>
+           <div><b>Talking-head / character video needs an NVIDIA GPU</b>
+             <i id="pgThReason">Your Intel integrated graphics can't run avatar generation.</i></div></div>
+         <div class="fl2">What you can do on this PC instead:</div>
+         <ul style="margin:8px 0 0 18px;color:var(--txt2);font-size:12px;line-height:1.7">
+           <li>Animate your photos with Ken Burns motion (Motion tab)</li>
+           <li>Add AI narration + subtitles</li>
+           <li>Export a real 1080p MP4</li></ul>`);
+      api("/hardware").then(hw => {
+        if (hw.talking_head_blocker) $("#pgThReason").textContent = hw.talking_head_blocker;
+      }).catch(() => {});
+    } else if (view === "export") {
+      showPage("Export Queue",
+        `<div class="fl2">Output settings</div>
+         <div class="row2 grid3" style="margin-top:6px">
+           <select class="select" id="pgRes"><option>HD 1080p</option><option>HD 720p</option><option>4K 2160p</option></select>
+           <select class="select" id="pgFps"><option>30 fps</option><option>24 fps</option><option>60 fps</option></select>
+           <select class="select" id="pgCodec"><option>H.264 (MP4)</option><option>H.265 (MP4)</option></select></div>
+         <div style="margin-top:14px"><button class="btn primary" id="pgRender">Render video now</button></div>
+         <div class="fl2" style="margin-top:12px">${state.lastOutput
+            ? `Last render ready — <a href="#" id="pgOpenLast">open it</a>.` : "No renders yet."}</div>`);
+      $("#pgRes").value = state.exp.res; $("#pgFps").value = state.exp.fps; $("#pgCodec").value = state.exp.codec;
+      ["pgRes", "pgFps", "pgCodec"].forEach((id, k) => $("#" + id).onchange = e => {
+        state.exp[["res", "fps", "codec"][k]] = e.target.value;
+        $(["#expRes", "#expFps", "#expCodec"][k]).value = e.target.value;
+      });
+      $("#pgRender").onclick = () => { $("#pageModal").classList.remove("show"); renderVideo(); };
+      if (state.lastOutput && $("#pgOpenLast")) $("#pgOpenLast").onclick = (e) => {
+        e.preventDefault();
+        if (window.pywebview && window.pywebview.api && state.lastOutput.path)
+          window.pywebview.api.open_path(state.lastOutput.path);
+        else window.location.href = state.lastOutput.url;
+      };
+    }
   }
 
   // ---- Init ----------------------------------------------------------

@@ -90,7 +90,7 @@
           <img class="pv-img" id="pvImg" alt="" style="display:none">
           <video class="pv-img" id="pvVid" style="display:none" muted></video>
           <div class="pv-empty" id="pvEmpty">Import a photo or video, then add it as a scene.</div>
-          <div class="pv-caption" id="pvCaption">The journey begins…</div>
+          <div class="pv-caption" id="pvCaption"></div>
         </div>
         <div class="transport">
           <span class="tc-time"><b id="curTime">00:00:07</b> / <span id="totTime">00:00:30</span></span>
@@ -149,14 +149,24 @@
         <div class="scene-head">
           <div class="sh-thumb grad-a"></div>
           <div class="sh-meta">
-            <div class="sh-name" id="shName">Scene 1 - The Beginning</div>
-            <div class="sh-dur">Duration: <span id="shDur">00:10</span></div>
+            <div class="sh-name" id="shName">No scene selected</div>
+            <div class="sh-dur">Duration: <span id="shDur">—</span></div>
           </div>
-          <button class="icon-btn">&#9998;</button>
         </div>
 
-        <!-- Motion / Ken Burns -->
-        <div class="prop-group">
+        <!-- ===== SCENE pane ===== -->
+        <div class="pane" id="pane-scene">
+          <div class="fl2">On-screen caption <i>(leave empty for none)</i></div>
+          <input class="inp2" id="capInput" placeholder="(no caption on the video)">
+          <div class="fl2" style="margin-top:12px">Narration — what the voice says</div>
+          <textarea class="inp2 ta" id="narrInput" rows="3"
+            placeholder="Type the words to be spoken for this scene…"></textarea>
+          <div class="field" style="margin-top:12px"><div class="fl"><span>Scene Duration</span><b id="durVal">3.0s</b></div>
+            <input type="range" id="dur" min="2" max="20" step="0.5" value="3"></div>
+        </div>
+
+        <!-- ===== MOTION pane ===== -->
+        <div class="pane" id="pane-motion" style="display:none">
           <div class="pg-head">
             <span>Ken Burns <i>(Pan &amp; Zoom)</i></span>
             <label class="switch"><input type="checkbox" id="kbToggle" checked><span class="slider"></span></label>
@@ -165,46 +175,45 @@
             <button class="seg-btn active" data-seg="panzoom">Pan &amp; Zoom</button>
             <button class="seg-btn" data-seg="static">Static</button>
           </div>
-          <div class="pos-row">
-            <div class="pos"><div class="pos-label">Start Position</div><div class="pos-thumb grad-b"><span class="crosshair">&#10010;</span></div><button class="mini">Reset</button></div>
-            <div class="pos"><div class="pos-label">End Position</div><div class="pos-thumb grad-c"><span class="crosshair">&#10010;</span></div><button class="mini">Reset</button></div>
-          </div>
-          <div class="field"><div class="fl"><span>Zoom In</span><b id="zoomVal">1.15</b></div>
-            <input type="range" id="zoom" min="1" max="2" step="0.01" value="1.15"></div>
+          <div class="field"><div class="fl"><span>Zoom In</span><b id="zoomVal">1.12</b></div>
+            <input type="range" id="zoom" min="1" max="2" step="0.01" value="1.12"></div>
           <div class="field"><div class="fl"><span>Pan Speed</span><b id="panVal">Slow</b></div>
             <input type="range" id="pan" min="0" max="2" step="1" value="0"></div>
-          <div class="field"><div class="fl"><span>Scene Duration</span><b id="durVal">10.0s</b></div>
-            <input type="range" id="dur" min="2" max="20" step="0.5" value="10"></div>
+          <div class="fl2" style="margin-top:8px">Motion animates still photos. Realistic
+            character/talking-head motion needs an NVIDIA GPU (see Identity &amp; Motion).</div>
         </div>
 
-        <!-- Voice -->
-        <div class="prop-group">
-          <div class="pg-head2"><span>&#127908; Voice</span></div>
+        <!-- ===== VOICE pane ===== -->
+        <div class="pane" id="pane-voice" style="display:none">
           <div class="fl2">Voice Profile</div>
           <div class="row2">
-            <select class="select" id="voiceSel"><option>Piper (English)</option></select>
-            <button class="btn ghost sm" id="testVoiceBtn">&#9834; Test Voice</button>
+            <select class="select" id="voiceSel"><option>Piper (none installed)</option></select>
+            <button class="btn ghost sm" id="testVoiceBtn">&#9834; Test</button>
           </div>
-          <div class="field"><div class="fl"><span>Speed</span><b id="vspeedVal">1.0x</b></div>
+          <div class="field" style="margin-top:10px"><div class="fl"><span>Speed</span><b id="vspeedVal">1.0x</b></div>
             <input type="range" id="vspeed" min="0.5" max="2" step="0.1" value="1"></div>
           <div class="field"><div class="fl"><span>Pause Between Scenes</span><b id="vpauseVal">0.5s</b></div>
             <input type="range" id="vpause" min="0" max="2" step="0.1" value="0.5"></div>
+          <div class="fl2" id="voiceHint" style="margin-top:8px">No voice installed —
+            open <b>AI Models</b> and download the narration voice to enable voice-over.</div>
         </div>
 
-        <!-- Subtitles -->
-        <div class="prop-group">
+        <!-- ===== SUBTITLES pane ===== -->
+        <div class="pane" id="pane-subs" style="display:none">
           <div class="pg-head">
-            <span>&#9636; Subtitles</span>
+            <span>Burn subtitles into the video</span>
             <label class="switch"><input type="checkbox" id="subToggle" checked><span class="slider"></span></label>
           </div>
-          <div class="row2 grid2">
+          <div class="row2 grid2" style="margin-top:8px">
             <div><div class="fl2">Style</div><select class="select" id="subStyle"><option>Modern (White)</option><option>Bold (Yellow)</option><option>Boxed</option></select></div>
             <div><div class="fl2">Size</div><select class="select" id="subSize"><option>Small</option><option selected>Medium</option><option>Large</option></select></div>
           </div>
+          <div class="fl2" style="margin-top:10px">Subtitles show each scene's narration
+            text, timed to the voice-over.</div>
         </div>
 
-        <!-- Export settings -->
-        <div class="prop-group">
+        <!-- Always-visible: export + status -->
+        <div class="prop-group" style="margin-top:18px;border-top:1px solid var(--line);padding-top:14px">
           <div class="pg-head2"><span>&#8691; Export Settings</span></div>
           <div class="row2 grid3">
             <select class="select" id="expRes"><option>HD 1080p</option><option>HD 720p</option><option>4K 2160p</option></select>
@@ -212,8 +221,6 @@
             <select class="select" id="expCodec"><option>H.264 (MP4)</option><option>H.265 (MP4)</option></select>
           </div>
         </div>
-
-        <!-- Status cards -->
         <div class="status-card ok" id="cpuCard">
           <span class="sc-ic">&#10003;</span>
           <div><b>CPU rendering ready</b><i>Optimized for your system</i></div>
@@ -239,6 +246,17 @@
         Talking-head avatar video needs an NVIDIA GPU and is not offered here.
       </div>
       <div id="modelsList"></div>
+    </div>
+  </div>
+
+  <!-- Generic left-nav page modal (Projects, Media Library, Scenes, Voice Studio, Identity & Motion, Export Queue) -->
+  <div class="overlay" id="pageModal">
+    <div class="overlay-card" style="width:600px;max-height:80vh;overflow:auto;text-align:left">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div class="ov-title" id="pageTitle" style="margin:0">Page</div>
+        <button class="icon-btn" id="pageClose">&#10005;</button>
+      </div>
+      <div id="pageBody"></div>
     </div>
   </div>
 
