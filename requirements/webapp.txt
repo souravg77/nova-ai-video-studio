@@ -1,0 +1,7 @@
+-r base.txt
+# NOVA Studio desktop dashboard (local web UI in a native window).
+Flask>=3.0,<4
+waitress>=3.0        # production WSGI server used by the desktop launcher
+pywebview>=5.0       # native desktop window (no browser, no console)
+# Optional: psutil for live CPU meter (falls back to loadavg if absent).
+# psutil>=5.9

@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NOVA Studio</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ===== TOP BAR ===== -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">N</span>
+      <span class="brand-name">NOVA Studio</span>
+    </div>
+    <div class="project-title">
+      <span id="projectName">My First Video Project</span>
+      <button class="icon-btn" title="Rename">&#9998;</button>
+    </div>
+    <div class="top-right">
+      <div class="meter"><span class="meter-ic">&#9636;</span> CPU <b id="cpuPct">—</b></div>
+      <div class="meter"><span class="meter-ic">&#9638;</span> GPU <b id="gpuPct">0%</b></div>
+      <div class="saved"><span class="dot"></span> <span id="savedLabel">Saved just now</span></div>
+      <button class="btn ghost" id="exportBtn"><span>&#8682;</span> Export</button>
+      <button class="btn primary" id="renderBtn">Render Video</button>
+      <div class="winctl"><span>&#8211;</span><span>&#9633;</span><span class="x">&#10005;</span></div>
+    </div>
+  </header>
+
+  <div class="main">
+    <!-- ===== LEFT NAV RAIL ===== -->
+    <nav class="rail">
+      <ul class="nav">
+        <li class="nav-item active" data-view="projects"><span class="ni">&#8962;</span> Projects</li>
+        <li class="nav-item" data-view="media"><span class="ni">&#128193;</span> Media Library</li>
+        <li class="nav-item" data-view="scenes"><span class="ni">&#9635;</span> Scenes</li>
+        <li class="nav-item" data-view="voice"><span class="ni">&#127908;</span> Voice Studio</li>
+        <li class="nav-item" data-view="identity"><span class="ni">&#128100;</span> Identity &amp; Motion</li>
+        <li class="nav-item" data-view="export"><span class="ni">&#8691;</span> Export Queue</li>
+      </ul>
+      <div class="rail-section">
+        <div class="rail-h">Current Project</div>
+        <div class="cur-project">
+          <div class="cp-thumb grad-a"></div>
+          <div class="cp-meta">
+            <div class="cp-name">My First Video Project</div>
+            <div class="cp-sub"><span id="cpScenes">3 scenes</span> &middot; <span id="cpDur">00:00:30</span></div>
+            <div class="cp-sub">1080p &middot; 30fps</div>
+          </div>
+        </div>
+      </div>
+      <div class="rail-section">
+        <div class="rail-h">Recent <span class="rail-more">&#8250;</span></div>
+        <ul class="recent">
+          <li><span class="rc-thumb grad-b"></span><span class="rc-t">Nature Journey<br><i>2 days ago</i></span></li>
+          <li><span class="rc-thumb grad-c"></span><span class="rc-t">Product Demo<br><i>3 days ago</i></span></li>
+          <li><span class="rc-thumb grad-d"></span><span class="rc-t">Travel Vlog<br><i>5 days ago</i></span></li>
+        </ul>
+      </div>
+    </nav>
+
+    <!-- ===== MEDIA LIBRARY COLUMN ===== -->
+    <section class="library">
+      <div class="lib-head">
+        <h2>Media Library</h2>
+        <button class="btn primary sm" id="importBtn">+ Import</button>
+      </div>
+      <div class="tabs" id="mediaTabs">
+        <button class="tab active" data-tab="photos">Photos</button>
+        <button class="tab" data-tab="audio">Audio</button>
+        <button class="tab" data-tab="videos">Videos</button>
+      </div>
+      <div class="media-list" id="mediaList"><!-- filled by JS --></div>
+
+      <div class="scenes-head">
+        <h3>Scenes (<span id="sceneCount">3</span>)</h3>
+        <button class="icon-btn add" id="addSceneBtn">+</button>
+      </div>
+      <div class="scene-list" id="sceneList"><!-- filled by JS --></div>
+    </section>
+
+    <!-- ===== CENTER: PREVIEW + TIMELINE ===== -->
+    <section class="stage">
+      <div class="preview">
+        <div class="preview-canvas" id="previewCanvas">
+          <div class="pv-frame grad-a" id="pvFrame"></div>
+          <div class="pv-caption" id="pvCaption">The journey begins…</div>
+        </div>
+        <div class="transport">
+          <span class="tc-time"><b id="curTime">00:00:07</b> / <span id="totTime">00:00:30</span></span>
+          <div class="tc-mid">
+            <button class="tc-btn" id="prevBtn">&#9198;</button>
+            <button class="tc-play" id="playBtn">&#9654;</button>
+            <button class="tc-btn" id="nextBtn">&#9197;</button>
+          </div>
+          <div class="tc-right">
+            <button class="tc-btn" id="muteBtn">&#128266;</button>
+            <button class="tc-btn">&#9881;</button>
+            <button class="tc-btn">&#9974;</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="timeline">
+        <div class="tl-toolbar">
+          <button class="tlb active">&#9655;</button>
+          <button class="tlb">&#9988;</button>
+          <button class="tlb">&#128465;</button>
+          <button class="tlb">&#8635;</button>
+        </div>
+        <div class="tl-ruler" id="tlRuler"><!-- ticks --></div>
+        <div class="tl-body">
+          <div class="tl-row">
+            <div class="tl-label"><span>&#128065;</span> Video / Scenes</div>
+            <div class="tl-track" id="trackVideo"></div>
+          </div>
+          <div class="tl-row">
+            <div class="tl-label"><span>&#128266;</span> Audio (Narration)</div>
+            <div class="tl-track" id="trackAudio"><div class="waveform" id="waveform"></div></div>
+          </div>
+          <div class="tl-row">
+            <div class="tl-label"><span>T</span> Subtitles</div>
+            <div class="tl-track" id="trackSubs"></div>
+          </div>
+          <div class="tl-row">
+            <div class="tl-label"><span>&#8646;</span> Transitions</div>
+            <div class="tl-track" id="trackTrans"></div>
+          </div>
+          <div class="tl-playhead" id="playhead"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== RIGHT PROPERTIES PANEL ===== -->
+    <aside class="props">
+      <div class="prop-tabs" id="propTabs">
+        <button class="ptab active" data-ptab="scene">Scene</button>
+        <button class="ptab" data-ptab="motion">Motion</button>
+        <button class="ptab" data-ptab="voice">Voice</button>
+        <button class="ptab" data-ptab="subs">Subtitles</button>
+      </div>
+      <div class="prop-body">
+        <div class="scene-head">
+          <div class="sh-thumb grad-a"></div>
+          <div class="sh-meta">
+            <div class="sh-name" id="shName">Scene 1 - The Beginning</div>
+            <div class="sh-dur">Duration: <span id="shDur">00:10</span></div>
+          </div>
+          <button class="icon-btn">&#9998;</button>
+        </div>
+
+        <!-- Motion / Ken Burns -->
+        <div class="prop-group">
+          <div class="pg-head">
+            <span>Ken Burns <i>(Pan &amp; Zoom)</i></span>
+            <label class="switch"><input type="checkbox" id="kbToggle" checked><span class="slider"></span></label>
+          </div>
+          <div class="seg" id="kbSeg">
+            <button class="seg-btn active" data-seg="panzoom">Pan &amp; Zoom</button>
+            <button class="seg-btn" data-seg="static">Static</button>
+          </div>
+          <div class="pos-row">
+            <div class="pos"><div class="pos-label">Start Position</div><div class="pos-thumb grad-b"><span class="crosshair">&#10010;</span></div><button class="mini">Reset</button></div>
+            <div class="pos"><div class="pos-label">End Position</div><div class="pos-thumb grad-c"><span class="crosshair">&#10010;</span></div><button class="mini">Reset</button></div>
+          </div>
+          <div class="field"><div class="fl"><span>Zoom In</span><b id="zoomVal">1.15</b></div>
+            <input type="range" id="zoom" min="1" max="2" step="0.01" value="1.15"></div>
+          <div class="field"><div class="fl"><span>Pan Speed</span><b id="panVal">Slow</b></div>
+            <input type="range" id="pan" min="0" max="2" step="1" value="0"></div>
+          <div class="field"><div class="fl"><span>Scene Duration</span><b id="durVal">10.0s</b></div>
+            <input type="range" id="dur" min="2" max="20" step="0.5" value="10"></div>
+        </div>
+
+        <!-- Voice -->
+        <div class="prop-group">
+          <div class="pg-head2"><span>&#127908; Voice</span></div>
+          <div class="fl2">Voice Profile</div>
+          <div class="row2">
+            <select class="select" id="voiceSel"><option>Piper (English)</option></select>
+            <button class="btn ghost sm" id="testVoiceBtn">&#9834; Test Voice</button>
+          </div>
+          <div class="field"><div class="fl"><span>Speed</span><b id="vspeedVal">1.0x</b></div>
+            <input type="range" id="vspeed" min="0.5" max="2" step="0.1" value="1"></div>
+          <div class="field"><div class="fl"><span>Pause Between Scenes</span><b id="vpauseVal">0.5s</b></div>
+            <input type="range" id="vpause" min="0" max="2" step="0.1" value="0.5"></div>
+        </div>
+
+        <!-- Subtitles -->
+        <div class="prop-group">
+          <div class="pg-head">
+            <span>&#9636; Subtitles</span>
+            <label class="switch"><input type="checkbox" id="subToggle" checked><span class="slider"></span></label>
+          </div>
+          <div class="row2 grid2">
+            <div><div class="fl2">Style</div><select class="select" id="subStyle"><option>Modern (White)</option><option>Bold (Yellow)</option><option>Boxed</option></select></div>
+            <div><div class="fl2">Size</div><select class="select" id="subSize"><option>Small</option><option selected>Medium</option><option>Large</option></select></div>
+          </div>
+        </div>
+
+        <!-- Export settings -->
+        <div class="prop-group">
+          <div class="pg-head2"><span>&#8691; Export Settings</span></div>
+          <div class="row2 grid3">
+            <select class="select" id="expRes"><option>HD 1080p</option><option>HD 720p</option><option>4K 2160p</option></select>
+            <select class="select" id="expFps"><option>30 fps</option><option>24 fps</option><option>60 fps</option></select>
+            <select class="select" id="expCodec"><option>H.264 (MP4)</option><option>H.265 (MP4)</option></select>
+          </div>
+        </div>
+
+        <!-- Status cards -->
+        <div class="status-card ok" id="cpuCard">
+          <span class="sc-ic">&#10003;</span>
+          <div><b>CPU rendering ready</b><i>Optimized for your system</i></div>
+        </div>
+        <div class="status-card info" id="gpuCard">
+          <span class="sc-ic">&#9432;</span>
+          <div><b>Talking-head generation unavailable</b><i>Requires NVIDIA GPU (CUDA) and approved models.</i></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- toast / render overlay -->
+  <div class="overlay" id="overlay">
+    <div class="overlay-card">
+      <div class="spinner" id="ovSpinner"></div>
+      <div class="ov-title" id="ovTitle">Rendering…</div>
+      <div class="ov-sub" id="ovSub"></div>
+      <div class="ov-prog"><i id="ovBar"></i></div>
+      <div class="ov-actions" id="ovActions"></div>
+    </div>
+  </div>
+</div>
+<input type="file" id="filePicker" multiple accept="image/*" style="display:none">
+<script src="js/app.js"></script>
+</body>
+</html>

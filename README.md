@@ -56,6 +56,22 @@ exceeds the PC's tested capabilities.
 - **Offline by default** — the core flow performs no network calls (verified by
   test).
 
+## The NOVA Studio dashboard
+
+The main app is a full studio **dashboard** (`webapp/`): a dark, modern editor
+with a media library, scene list, preview + timeline, and a properties panel
+(Ken Burns motion, voice, subtitles, export settings). It runs in a **native
+window — no console, no browser chrome** — served by a local Flask backend that
+drives the real, tested NOVA engine, so the **Render** button produces a
+genuine validated MP4.
+
+Run it from source:
+
+```powershell
+python -m pip install -r requirements\webapp.txt
+python -m webapp.desktop          # opens the dashboard in a native window
+```
+
 ## Install on Windows 11 (.exe installer)
 
 Build a double-click installer (`NOVA-Setup.exe`) with one command on Windows:
@@ -64,11 +80,11 @@ Build a double-click installer (`NOVA-Setup.exe`) with one command on Windows:
 powershell -ExecutionPolicy Bypass -File scripts\build_exe.ps1
 ```
 
-This bundles PySide6 + FFmpeg into `packaging\Output\NOVA-Setup.exe`, which
-installs NOVA with Start-Menu/desktop shortcuts. Requires Python 3.10–3.12 and
-Inno Setup 6 on the build machine. Full details in `packaging/README.md`.
-(The `.exe` must be built on Windows — PyInstaller cannot cross-build it from
-Linux/macOS.)
+This bundles the dashboard + engine + FFmpeg into
+`packaging\Output\NOVA-Setup.exe`, which installs NOVA (windowed, no console)
+with Start-Menu/desktop shortcuts. Requires Python 3.10–3.12 and Inno Setup 6 on
+the build machine. Full details in `packaging/README.md`. (The `.exe` must be
+built on Windows — PyInstaller cannot cross-build it from Linux/macOS.)
 
 ## Quick start (Windows, from source)
 

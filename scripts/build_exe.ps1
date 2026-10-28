@@ -38,7 +38,8 @@ if (-not (Test-Path $venv)) {
 }
 $py = Join-Path $venv "Scripts\python.exe"
 & $py -m pip install --upgrade pip | Out-Null
-& $py -m pip install -r requirements\ui.txt pyinstaller
+# Dashboard app deps (Flask + waitress + pywebview) + the engine + PyInstaller.
+& $py -m pip install -r requirements\webapp.txt pyinstaller
 if ($LASTEXITCODE -ne 0) { throw "Dependency install failed." }
 
 # --- 2. FFmpeg -------------------------------------------------------------
@@ -83,7 +84,7 @@ Section "PyInstaller"
 if (Test-Path (Join-Path $root "dist\NOVA-Studio")) {
     Remove-Item -Recurse -Force (Join-Path $root "dist\NOVA-Studio")
 }
-& $py -m PyInstaller packaging\nova_studio.spec --noconfirm --clean
+& $py -m PyInstaller packaging\nova_studio_dashboard.spec --noconfirm --clean
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed." }
 $exe = Join-Path $root "dist\NOVA-Studio\NOVA-Studio.exe"
 if (-not (Test-Path $exe)) { throw "Expected $exe was not produced." }
