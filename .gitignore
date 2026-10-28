@@ -38,3 +38,11 @@ dist/
 .DS_Store
 Thumbs.db
 test.mp4
+
+# Windows build artifacts
+.build-venv/
+dist/
+build/
+packaging/Output/
+packaging/ffmpeg/
+*.spec.bak

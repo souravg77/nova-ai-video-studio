@@ -56,7 +56,21 @@ exceeds the PC's tested capabilities.
 - **Offline by default** — the core flow performs no network calls (verified by
   test).
 
-## Quick start (Windows)
+## Install on Windows 11 (.exe installer)
+
+Build a double-click installer (`NOVA-Setup.exe`) with one command on Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build_exe.ps1
+```
+
+This bundles PySide6 + FFmpeg into `packaging\Output\NOVA-Setup.exe`, which
+installs NOVA with Start-Menu/desktop shortcuts. Requires Python 3.10–3.12 and
+Inno Setup 6 on the build machine. Full details in `packaging/README.md`.
+(The `.exe` must be built on Windows — PyInstaller cannot cross-build it from
+Linux/macOS.)
+
+## Quick start (Windows, from source)
 
 ```powershell
 # 1. Verify the real hardware first
