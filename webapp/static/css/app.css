@@ -91,6 +91,10 @@ b{font-weight:600}
 .preview{flex:1;display:flex;flex-direction:column;padding:16px 16px 10px;min-height:0}
 .preview-canvas{flex:1;position:relative;border-radius:12px;overflow:hidden;background:#000;display:grid;place-items:center;min-height:0}
 .pv-frame{position:absolute;inset:0}
+.pv-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+.pv-empty{position:absolute;inset:0;display:grid;place-items:center;color:#5b6472;font-size:13px;text-align:center;padding:20px}
+.mi-thumb img,.sc-thumb img,.cp-thumb img,.sh-thumb img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block}
+.tl-clip img{width:100%;height:100%;object-fit:cover}
 .pv-caption{position:absolute;bottom:52px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.55);padding:6px 14px;border-radius:7px;font-size:14px;font-weight:500}
 .transport{position:absolute;left:0;right:0;bottom:0;height:44px;display:flex;align-items:center;gap:14px;padding:0 16px;background:linear-gradient(transparent,rgba(0,0,0,.6))}
 .tc-time{font-size:12px;color:#d7dae2}.tc-time b{color:#fff}
@@ -189,3 +193,7 @@ input[type=range]::-moz-range-thumb{width:15px;height:15px;border:none;border-ra
 .grad-b{background:linear-gradient(135deg,#34d399,#0f766e 60%,#134e4a)}
 .grad-c{background:linear-gradient(135deg,#a78bfa,#6d28d9 55%,#4c1d95)}
 .grad-d{background:linear-gradient(135deg,#60a5fa,#2563eb 55%,#1e3a8a)}
+
+/* inline status colors (used by the AI Models panel) */
+.ok{color:var(--ok)}
+.no{color:#e5674b}

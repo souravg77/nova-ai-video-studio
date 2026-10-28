@@ -184,14 +184,17 @@ class StillVideoExporter:
 
         # ---- Stage 3: render --------------------------------------------
         report(0.55, "Rendering video")
+        _VIDEO_EXT = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
         render_scenes = []
         for i, sc in enumerate(scenes):
             dur = max(2.0, scene_durations[i] if i < len(scene_durations)
                       else sc.duration_s)
+            is_video = Path(sc.photo_path).suffix.lower() in _VIDEO_EXT
             render_scenes.append(SceneSpec(
-                kind="image", source=sc.photo_path, duration_s=dur,
-                caption=sc.caption,
-                motion="kenburns" if sc.motion == "kenburns" else None))
+                kind="video" if is_video else "image",
+                source=sc.photo_path, duration_s=dur, caption=sc.caption,
+                motion=None if is_video
+                else ("kenburns" if sc.motion == "kenburns" else None)))
         spec = RenderSpec(
             scenes=render_scenes, width=cfg.width, height=cfg.height,
             fps=cfg.fps, narration_path=narration_path,

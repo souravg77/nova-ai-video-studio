@@ -8,3 +8,7 @@ psutil>=5.9
 # Phase 4 photo intake/preparation (image quality, crop/align).
 Pillow>=10.0
 opencv-python-headless>=4.8
+# Local script LLM runtime (Qwen2.5 GGUF). Installed best-effort by the build
+# (prebuilt CPU wheels on Windows) so a wheel issue never breaks the build;
+# the spec bundles it only if present. To enable script generation from source:
+#   pip install llama-cpp-python

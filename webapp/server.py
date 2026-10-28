@@ -28,6 +28,20 @@ from flask import (Flask, jsonify, request, send_from_directory,  # noqa: E402
 STATIC = _HERE / "static"
 
 
+def _add_piper_to_path(models_dir: Path) -> None:
+    """Prepend the downloaded Piper engine dir (if any) to PATH."""
+    import os
+    piper_root = Path(models_dir) / "tts" / "piper"
+    if not piper_root.exists():
+        return
+    # The archive may extract into tts/piper/ or tts/piper/piper/.
+    for cand in (piper_root, piper_root / "piper"):
+        exe = cand / ("piper.exe" if os.name == "nt" else "piper")
+        if exe.exists():
+            os.environ["PATH"] = str(cand) + os.pathsep + os.environ.get("PATH", "")
+            return
+
+
 def _cpu_percent() -> int:
     try:
         import psutil  # optional
@@ -62,7 +76,13 @@ def create_app(workspace: Path | None = None) -> Flask:
     from nova_studio.core.studio import Studio
 
     ws = workspace or (Path.home() / ".nova_home")
-    studio = Studio(AppConfig(paths=Paths.create(ws)))
+    cfg = AppConfig(paths=Paths.create(ws))
+
+    # If the user downloaded the Piper engine via the AI Models panel, it lives
+    # in <models>/tts/piper. Put it on PATH so narration finds it.
+    _add_piper_to_path(cfg.paths.models)
+
+    studio = Studio(cfg)
 
     app = Flask(__name__, static_folder=None)
     jobs: dict[str, RenderJob] = {}
@@ -122,9 +142,156 @@ def create_app(workspace: Path | None = None) -> Flask:
             expression=ExpressionSettings(speed=float(data.get("speed", 1.0))))
         return jsonify(res)
 
+    # ---- media upload + serving --------------------------------------
+    media_dir = ws / "studio_media"
+    media_dir.mkdir(parents=True, exist_ok=True)
+    media: dict[str, dict] = {}   # id -> {path, kind, name, w, h, dur}
+
+    _IMG = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif"}
+    _VID = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
+    _AUD = {".wav", ".mp3", ".aac", ".m4a", ".flac", ".ogg"}
+
+    @app.route("/api/upload", methods=["POST"])
+    def upload():
+        from nova_studio.media.probe import probe
+        from werkzeug.utils import secure_filename
+        saved = []
+        for f in request.files.getlist("files"):
+            name = secure_filename(f.filename or "file")
+            ext = Path(name).suffix.lower()
+            kind = ("image" if ext in _IMG else "video" if ext in _VID
+                    else "audio" if ext in _AUD else None)
+            if kind is None:
+                saved.append({"ok": False, "name": name,
+                              "message": f"Unsupported type {ext}"})
+                continue
+            mid = uuid.uuid4().hex[:12]
+            dest = media_dir / f"{mid}{ext}"
+            f.save(str(dest))
+            info = probe(dest)
+            entry = {"id": mid, "path": str(dest), "kind": kind, "name": name,
+                     "w": info.width, "h": info.height,
+                     "dur": info.duration_s, "ok": info.ok}
+            media[mid] = entry
+            saved.append({**entry, "url": f"/api/media/{mid}"})
+        return jsonify({"files": saved})
+
+    def _register_media(src: Path, name: str) -> dict:
+        from nova_studio.media.probe import probe
+        ext = src.suffix.lower()
+        kind = ("image" if ext in _IMG else "video" if ext in _VID
+                else "audio" if ext in _AUD else None)
+        if kind is None:
+            return {"ok": False, "name": name, "message": f"Unsupported {ext}"}
+        mid = uuid.uuid4().hex[:12]
+        import shutil
+        dest = media_dir / f"{mid}{ext}"
+        shutil.copyfile(str(src), str(dest))
+        info = probe(dest)
+        entry = {"id": mid, "path": str(dest), "kind": kind, "name": name,
+                 "w": info.width, "h": info.height, "dur": info.duration_s,
+                 "ok": info.ok}
+        media[mid] = entry
+        return {**entry, "url": f"/api/media/{mid}"}
+
+    @app.route("/api/import_paths", methods=["POST"])
+    def import_paths():
+        """Import files chosen via the native file dialog (local paths)."""
+        data = request.get_json(force=True, silent=True) or {}
+        saved = []
+        for raw in data.get("paths", []):
+            p = Path(raw)
+            if not p.exists():
+                saved.append({"ok": False, "name": raw,
+                              "message": "File not found"})
+                continue
+            saved.append(_register_media(p, p.name))
+        return jsonify({"files": saved})
+
+    @app.route("/api/media/<mid>")
+    def serve_media(mid):
+        entry = media.get(mid)
+        if not entry or not Path(entry["path"]).exists():
+            abort(404)
+        return send_file(entry["path"])
+
+    @app.route("/api/thumb/<mid>")
+    def thumb(mid):
+        """A JPEG thumbnail for an image or the first video frame."""
+        entry = media.get(mid)
+        if not entry:
+            abort(404)
+        if entry["kind"] == "image":
+            return send_file(entry["path"])
+        # extract a frame from video/audio-cover via ffmpeg
+        from nova_studio.media.probe import ffmpeg_path
+        import subprocess
+        tp = media_dir / f"{mid}_thumb.jpg"
+        if not tp.exists():
+            subprocess.run([ffmpeg_path(), "-y", "-i", entry["path"],
+                            "-frames:v", "1", "-vf", "scale=160:-1", str(tp)],
+                           capture_output=True, timeout=30)
+        if tp.exists():
+            return send_file(str(tp))
+        abort(404)
+
+    # ---- AI model downloader -----------------------------------------
+    from webapp.models import ModelDownloader
+    downloader = ModelDownloader(studio.config.paths.models)
+
+    @app.route("/api/models/status")
+    def models_status():
+        return jsonify(downloader.status(studio.resolver))
+
+    @app.route("/api/models/download", methods=["POST"])
+    def models_download():
+        data = request.get_json(force=True, silent=True) or {}
+        key = data.get("key", "")
+        try:
+            downloader.start(key)
+        except KeyError:
+            return jsonify({"ok": False, "message": f"Unknown model '{key}'."})
+        # A fresh model changes capability; refresh once it lands (polled by UI).
+        return jsonify({"ok": True})
+
+    @app.route("/api/models/refresh", methods=["POST"])
+    def models_refresh():
+        _add_piper_to_path(studio.config.paths.models)
+        studio.refresh_pipeline()
+        return jsonify({"ok": True})
+
+    @app.route("/api/script", methods=["POST"])
+    def script():
+        """Auto-write per-scene narration from a brief using the local LLM.
+
+        Returns an honest blocker when the Qwen model/runtime is not installed.
+        """
+        data = request.get_json(force=True, silent=True) or {}
+        brief = (data.get("brief") or "").strip()
+        n = int(data.get("scenes", 3))
+        if not brief:
+            return jsonify({"ok": False, "message": "Enter a topic first."})
+        from nova_studio.adapters.llm import ScriptAdapter
+        model = studio.resolver.resolve_script_model()
+        adapter = ScriptAdapter(model_path=model.path if model else None)
+        avail = adapter.availability()
+        if not avail.available:
+            return jsonify({"ok": False, "message": avail.reason,
+                            "need_download": True})
+        res = adapter.run({"brief": brief, "scenes": n})
+        if not res.ok:
+            return jsonify({"ok": False, "message": res.message})
+        scenes = res.metrics.get("scenes", [])
+        return jsonify({"ok": True, "scenes": scenes})
+
     @app.route("/api/render", methods=["POST"])
     def render():
         data = request.get_json(force=True, silent=True) or {}
+        # Resolve media ids in scenes to real file paths.
+        for sc in data.get("scenes", []):
+            mid = sc.get("media_id")
+            if mid and mid in media:
+                sc["photo_path"] = media[mid]["path"]
         job_id = uuid.uuid4().hex[:12]
         job = RenderJob(job_id)
         jobs[job_id] = job
@@ -145,6 +312,7 @@ def create_app(workspace: Path | None = None) -> Flask:
         }
         if job.state == "completed":
             out["output_url"] = f"/api/output/{job_id}"
+            out["output_path"] = job.output_path
         return jsonify(out)
 
     @app.route("/api/output/<job_id>")
@@ -169,28 +337,28 @@ def _run_render(studio, data: dict, job: "RenderJob", ws: Path) -> None:
         work = ws / "studio_render" / job.id
         work.mkdir(parents=True, exist_ok=True)
 
-        # Generate sample photos for scenes that have no imported image.
-        # (The dashboard's demo scenes use gradient placeholders; we render
-        # them as solid colour slates so the pipeline always has real inputs.)
+        # Use each scene's real uploaded image when present; only fall back to
+        # a solid colour slate for scenes the user left without media.
         from nova_studio.media.probe import ffmpeg_path
         import subprocess
         scenes_in = data.get("scenes", [])
-        photos = []
         colours = ["0x1a2b4c", "0x1f5130", "0x4a2a6a", "0x25507a"]
-        for i, _s in enumerate(scenes_in):
-            p = work / f"photo_{i}.png"
-            subprocess.run([ffmpeg_path(), "-y", "-f", "lavfi",
-                            "-i", f"color=c={colours[i % 4]}:s=1280x720:d=1",
-                            "-frames:v", "1", str(p)],
-                           capture_output=True, timeout=60)
-            photos.append(str(p))
-
-        scenes = [PhotoScene(
-            photo_path=photos[i],
-            caption=s.get("caption", ""), narration=s.get("narration", ""),
-            duration_s=float(s.get("duration_s", 5)),
-            motion=s.get("motion", "kenburns"))
-            for i, s in enumerate(scenes_in)]
+        scenes = []
+        for i, s in enumerate(scenes_in):
+            src = s.get("photo_path")
+            if src and Path(src).exists():
+                photo = src
+            else:
+                photo = str(work / f"slate_{i}.png")
+                subprocess.run([ffmpeg_path(), "-y", "-f", "lavfi",
+                                "-i", f"color=c={colours[i % 4]}:s=1920x1080:d=1",
+                                "-frames:v", "1", photo],
+                               capture_output=True, timeout=60)
+            scenes.append(PhotoScene(
+                photo_path=photo,
+                caption=s.get("caption", ""), narration=s.get("narration", ""),
+                duration_s=float(s.get("duration_s", 5)),
+                motion=s.get("motion", "kenburns")))
 
         want_narr = bool(data.get("want_narration", True))
         voice = studio.resolver.resolve_tts_voice()

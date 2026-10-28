@@ -12,7 +12,7 @@ packages it into NOVA-Setup.exe.
 """
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, collect_all
 
 ROOT = Path(SPECPATH).resolve().parent
 SRC = ROOT / "src"
@@ -28,6 +28,7 @@ datas = [
     (str(ROOT / "docs"), "docs"),
     (str(ROOT / "README.md"), "."),
 ]
+binaries = []
 
 hiddenimports = []
 hiddenimports += collect_submodules("pydantic")
@@ -36,12 +37,24 @@ hiddenimports += collect_submodules("flask")
 hiddenimports += ["platformdirs", "waitress", "webview", "jinja2",
                   "nova_studio.core.studio",
                   "nova_studio.phase4.still_video",
-                  "webapp.server"]
+                  "webapp.server", "webapp.models"]
+
+# Bundle the local LLM runtime (llama-cpp-python) if it is installed, so the
+# downloaded Qwen2.5 GGUF script model can run. collect_all grabs its compiled
+# library + data. If llama_cpp is not installed the build still succeeds (the
+# script feature simply stays unavailable).
+try:
+    _lc_datas, _lc_bins, _lc_hidden = collect_all("llama_cpp")
+    datas += _lc_datas
+    binaries += _lc_bins
+    hiddenimports += _lc_hidden
+except Exception:
+    pass
 
 a = Analysis(
     [str(WEBAPP / "desktop.py")],
     pathex=[str(SRC), str(ROOT)],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

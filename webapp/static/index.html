@@ -38,6 +38,7 @@
         <li class="nav-item" data-view="scenes"><span class="ni">&#9635;</span> Scenes</li>
         <li class="nav-item" data-view="voice"><span class="ni">&#127908;</span> Voice Studio</li>
         <li class="nav-item" data-view="identity"><span class="ni">&#128100;</span> Identity &amp; Motion</li>
+        <li class="nav-item" data-view="models"><span class="ni">&#11015;</span> AI Models</li>
         <li class="nav-item" data-view="export"><span class="ni">&#8691;</span> Export Queue</li>
       </ul>
       <div class="rail-section">
@@ -86,6 +87,9 @@
       <div class="preview">
         <div class="preview-canvas" id="previewCanvas">
           <div class="pv-frame grad-a" id="pvFrame"></div>
+          <img class="pv-img" id="pvImg" alt="" style="display:none">
+          <video class="pv-img" id="pvVid" style="display:none" muted></video>
+          <div class="pv-empty" id="pvEmpty">Import a photo or video, then add it as a scene.</div>
           <div class="pv-caption" id="pvCaption">The journey begins…</div>
         </div>
         <div class="transport">
@@ -223,6 +227,21 @@
   </div>
 
   <!-- toast / render overlay -->
+  <!-- AI Models modal -->
+  <div class="overlay" id="modelsModal">
+    <div class="overlay-card" style="width:520px;text-align:left">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div class="ov-title" style="margin:0">AI Models</div>
+        <button class="icon-btn" id="modelsClose">&#10005;</button>
+      </div>
+      <div class="ov-sub" style="margin-bottom:14px">
+        Download the AI that runs on your PC. These work on CPU / Intel graphics.
+        Talking-head avatar video needs an NVIDIA GPU and is not offered here.
+      </div>
+      <div id="modelsList"></div>
+    </div>
+  </div>
+
   <div class="overlay" id="overlay">
     <div class="overlay-card">
       <div class="spinner" id="ovSpinner"></div>

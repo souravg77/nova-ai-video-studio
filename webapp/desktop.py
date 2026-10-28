@@ -4,13 +4,16 @@ This is the app entry point for the Windows build. It:
   * starts the Flask backend on a free 127.0.0.1 port in a background thread,
   * opens a native desktop window (pywebview) pointed at it — NO console, NO
     browser chrome, NO command prompt, and
-  * falls back to the default browser only if pywebview is unavailable.
+  * exposes a small JS API for a NATIVE file-open dialog and for opening the
+    finished video in the system player, so the app never has to rely on the
+    WebView2 HTML file dialog (which can pop a blank secondary window).
 
 The frozen .exe runs this with a windowed bootloader, so nothing shows on
 screen except the NOVA Studio window itself.
 """
 from __future__ import annotations
 
+import os
 import socket
 import sys
 import threading
@@ -35,8 +38,6 @@ def _workspace() -> Path:
 
 
 def _serve(app, port: int) -> None:
-    # Prefer waitress (production-grade, bundled on Windows); fall back to
-    # Flask's dev server. threaded=True so renders don't block the UI.
     try:
         from waitress import serve
         serve(app, host="127.0.0.1", port=port, threads=8)
@@ -45,7 +46,7 @@ def _serve(app, port: int) -> None:
                 debug=False, use_reloader=False)
 
 
-def _wait_ready(port: int, timeout: float = 20.0) -> bool:
+def _wait_ready(port: int, timeout: float = 25.0) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
@@ -54,6 +55,53 @@ def _wait_ready(port: int, timeout: float = 20.0) -> bool:
         except OSError:
             time.sleep(0.15)
     return False
+
+
+class JsApi:
+    """Exposed to the page as window.pywebview.api.* — native integrations."""
+
+    def __init__(self) -> None:
+        self._window = None
+
+    def set_window(self, window) -> None:
+        self._window = window
+
+    # Native "open file" dialog -> returns a list of local file paths.
+    def pick_files(self, kinds: str = "all") -> list[str]:
+        try:
+            import webview
+            if kinds == "image":
+                ft = ("Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif)",)
+            elif kinds == "audio":
+                ft = ("Audio (*.wav;*.mp3;*.aac;*.m4a;*.flac;*.ogg)",)
+            elif kinds == "video":
+                ft = ("Video (*.mp4;*.mov;*.mkv;*.avi;*.webm;*.m4v)",)
+            else:
+                ft = ("Media (*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif;"
+                      "*.mp4;*.mov;*.mkv;*.avi;*.webm;*.m4v;"
+                      "*.wav;*.mp3;*.aac;*.m4a;*.flac;*.ogg)",
+                      "All files (*.*)")
+            result = self._window.create_file_dialog(
+                webview.OPEN_DIALOG, allow_multiple=True, file_types=ft)
+            return list(result or [])
+        except Exception:
+            return []
+
+    # Open a finished file (the rendered video) in the OS default player.
+    def open_path(self, path: str) -> bool:
+        try:
+            p = str(Path(path))
+            if os.name == "nt":
+                os.startfile(p)  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                import subprocess
+                subprocess.Popen(["open", p])
+            else:
+                import subprocess
+                subprocess.Popen(["xdg-open", p])
+            return True
+        except Exception:
+            return False
 
 
 def main() -> int:
@@ -69,14 +117,20 @@ def main() -> int:
     url = f"http://127.0.0.1:{port}/"
 
     try:
-        import webview  # pywebview
+        import webview
+        api = JsApi()
         window = webview.create_window(
-            "NOVA Studio", url, width=1480, height=920, min_size=(1100, 720),
-            background_color="#0b0e14")
+            "NOVA Studio", url, js_api=api, width=1480, height=920,
+            min_size=(1100, 720), background_color="#0b0e14")
+        api.set_window(window)
+        # Keep everything in one window: block pop-ups / new-window requests.
+        try:
+            webview.settings["ALLOW_DOWNLOADS"] = False
+        except Exception:
+            pass
         webview.start()  # blocks until the window closes
         return 0
     except Exception:
-        # No native webview available: open the default browser instead.
         import webbrowser
         webbrowser.open(url)
         print(f"NOVA Studio is running at {url} (press Ctrl+C to stop).")
