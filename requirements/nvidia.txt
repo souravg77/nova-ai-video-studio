@@ -1,0 +1,4 @@
+# Tier 3/4 NVIDIA — separate environment, only when a compatible GPU with
+# enough measured VRAM is detected AND the model passes its benchmark.
+# torch  (install the CUDA build matching the detected driver/runtime)
+# torchvision

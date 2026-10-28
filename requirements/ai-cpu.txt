@@ -1,0 +1,22 @@
+# Tier 1 CPU AI — install in a SEPARATE environment / worker process.
+# These are candidates only. Verify each model card, weights and license
+# (see licenses/MODEL_APPROVALS.md) before enabling in production.
+#
+# Script LLM (quantized GGUF via llama.cpp python bindings):
+#   llama-cpp-python>=0.2.70
+# Local TTS (Piper — engine is GPL-3.0 upstream; review voice licenses):
+#   piper-tts
+# Speech-to-text (whisper.cpp python bindings — MIT project, review model assets):
+#   pywhispercpp
+#
+# Pinned intentionally commented out: do not auto-install heavy ML deps.
+# Uncomment per-tier only after the capability manager confirms the machine
+# passes the relevant benchmark.
+#
+# --- P2 pipeline runtimes (install in this separate environment) ---
+# Script generation (Qwen2.5 GGUF on CPU):
+#   llama-cpp-python>=0.2.70
+# Narration (Piper): install the `piper` CLI or the `piper-tts` package, plus a
+#   licensed voice (.onnx + .onnx.json) placed in models/tts.
+# Then put a Qwen2.5 GGUF in models/script. NOVA discovers them automatically
+# and will report an honest blocker until both are present.

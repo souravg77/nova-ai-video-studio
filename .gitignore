@@ -1,0 +1,40 @@
+# Never commit model weights, user media, voices, footage or generated output.
+*.gguf
+*.onnx
+*.bin
+*.safetensors
+*.pt
+*.pth
+models/
+weights/
+voices/
+*.mp4
+*.mov
+*.wav
+*.mp3
+*.png
+*.jpg
+*.jpeg
+!docs/**/*.png
+
+# User data / workspace
+.nova_home/
+NovaStudio/
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db
+test.mp4

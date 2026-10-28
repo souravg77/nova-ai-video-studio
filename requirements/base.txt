@@ -1,0 +1,4 @@
+# Core runtime — no AI model weights, no heavy ML frameworks.
+# These are the only hard dependencies for Tier 0 (editing/export) + project store.
+pydantic>=2.5,<3
+platformdirs>=4.0,<5

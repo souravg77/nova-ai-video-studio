@@ -1,0 +1,3 @@
+-r base.txt
+# Desktop UI. PySide6 is LGPL/commercial — review licenses/ before shipping.
+PySide6>=6.6,<7
