@@ -85,14 +85,34 @@ jobs:
         run: |
           $ffdir = "packaging/ffmpeg"
           New-Item -ItemType Directory -Force -Path $ffdir | Out-Null
-          $zip = "$env:RUNNER_TEMP/ffmpeg.zip"
-          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile $zip
-          Expand-Archive -Path $zip -DestinationPath "$env:RUNNER_TEMP/ff"
-          $bin = Get-ChildItem -Path "$env:RUNNER_TEMP/ff" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
-          Copy-Item $bin.FullName "$ffdir/ffmpeg.exe"
-          Copy-Item (Join-Path $bin.DirectoryName "ffprobe.exe") "$ffdir/ffprobe.exe"
-          $lic = Join-Path (Split-Path $bin.DirectoryName -Parent) "LICENSE"
-          if (Test-Path $lic) { Copy-Item $lic "$ffdir/LICENSE.txt" }
+          # Prefer the FFmpeg already installed on the runner (choco, step 5) —
+          # no network, so no flaky download. Fall back to a download with
+          # retries only if it is somehow absent.
+          $ff = Get-Command ffmpeg -ErrorAction SilentlyContinue
+          $fp = Get-Command ffprobe -ErrorAction SilentlyContinue
+          if ($ff -and $fp) {
+            Copy-Item $ff.Source "$ffdir/ffmpeg.exe"
+            Copy-Item $fp.Source "$ffdir/ffprobe.exe"
+            Write-Host "Bundled FFmpeg from the runner: $($ff.Source)"
+          } else {
+            $urls = @(
+              "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
+              "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip")
+            $zip = "$env:RUNNER_TEMP/ffmpeg.zip"; $ok = $false
+            foreach ($u in $urls) {
+              for ($i = 0; $i -lt 3 -and -not $ok; $i++) {
+                try { Invoke-WebRequest -Uri $u -OutFile $zip -TimeoutSec 180; $ok = $true }
+                catch { Start-Sleep -Seconds 5 }
+              }
+              if ($ok) { break }
+            }
+            if (-not $ok) { throw "Could not obtain FFmpeg from any source." }
+            Expand-Archive -Path $zip -DestinationPath "$env:RUNNER_TEMP/ff" -Force
+            $bin = Get-ChildItem -Path "$env:RUNNER_TEMP/ff" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+            Copy-Item $bin.FullName "$ffdir/ffmpeg.exe"
+            Copy-Item (Join-Path $bin.DirectoryName "ffprobe.exe") "$ffdir/ffprobe.exe"
+          }
+          if (-not (Test-Path "$ffdir/ffmpeg.exe")) { throw "ffmpeg.exe not bundled." }
 
       - name: Build installer (Inno Setup)
         shell: pwsh
