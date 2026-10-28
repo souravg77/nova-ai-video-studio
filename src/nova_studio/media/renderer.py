@@ -63,6 +63,46 @@ class RenderResult:
     log_tail: str = ""
 
 
+def _find_system_font() -> str:
+    """Return a path to a usable .ttf for drawtext, or '' if none found.
+
+    Windows ffmpeg builds have no default font via fontconfig, so an explicit
+    fontfile is required for captions to render. Checks common Windows, Linux
+    and macOS font locations.
+    """
+    import os
+    candidates = []
+    if os.name == "nt":
+        windir = os.environ.get("WINDIR", r"C:\Windows")
+        fonts = Path(windir) / "Fonts"
+        candidates += [fonts / n for n in
+                       ("arial.ttf", "segoeui.ttf", "tahoma.ttf", "verdana.ttf")]
+    candidates += [
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
+        Path("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
+        Path("/Library/Fonts/Arial.ttf"),
+        Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
+    ]
+    for c in candidates:
+        try:
+            if c.exists():
+                return str(c)
+        except Exception:
+            continue
+    return ""
+
+
+def _esc_fontfile(path: str) -> str:
+    """Escape a font path for use inside an ffmpeg filter argument.
+
+    On Windows the path has a drive colon and backslashes, both of which are
+    special in ffmpeg filter syntax; use forward slashes and escape the colon.
+    """
+    p = path.replace("\\", "/")
+    return p.replace(":", "\\:")
+
+
 def _esc_drawtext(text: str) -> str:
     """Escape text for ffmpeg drawtext."""
     if not text:
@@ -77,6 +117,7 @@ def _esc_drawtext(text: str) -> str:
 class Renderer:
     def __init__(self, ffmpeg: Optional[str] = None) -> None:
         self.ffmpeg = ffmpeg or ffmpeg_path()
+        self._fontfile = _find_system_font()
 
     # ------------------------------------------------------------------
     def _caption_filter(self, caption: str, height: int) -> str:
@@ -84,9 +125,15 @@ class Renderer:
             return ""
         esc = _esc_drawtext(caption)
         fontsize = max(18, int(height * 0.045))
+        # On Windows (and minimal Linux ffmpeg builds) drawtext has no default
+        # font via fontconfig, so pass an explicit fontfile when we found one.
+        # Without a resolvable font drawtext errors out and the render fails.
+        fontarg = ""
+        if self._fontfile:
+            fontarg = f":fontfile='{_esc_fontfile(self._fontfile)}'"
         # Semi-transparent box, bottom-centred — readable on any footage.
         return (
-            f",drawtext=text='{esc}':fontcolor=white:fontsize={fontsize}"
+            f",drawtext=text='{esc}'{fontarg}:fontcolor=white:fontsize={fontsize}"
             f":box=1:boxcolor=black@0.5:boxborderw=12"
             f":x=(w-text_w)/2:y=h-text_h-{int(height*0.06)}"
         )
@@ -269,6 +316,9 @@ class Renderer:
             "-c", "copy", "-c:s", "mov_text",
             "-movflags", "+faststart", str(subbed),
         ])
-        # Replace the output with the subtitled version.
-        subbed.replace(out_path)
+        # Replace the output with the subtitled version. Path.replace() fails
+        # across volumes on Windows (temp dir may be on a different drive than
+        # the output), so copy the bytes instead of an atomic rename.
+        import shutil
+        shutil.copyfile(str(subbed), str(out_path))
         return out_path

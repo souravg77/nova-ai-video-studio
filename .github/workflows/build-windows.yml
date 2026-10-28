@@ -43,7 +43,15 @@ jobs:
           python -m pip install -r requirements/webapp.txt -r requirements/dev.txt pyinstaller
 
       - name: Run full test suite
-        run: python -m pytest -q
+        run: python -m pytest -rf --tb=short --junit-xml=pytest-report.xml
+
+      - name: Upload test report (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-report
+          path: pytest-report.xml
+          if-no-files-found: ignore
 
       - name: Build PyInstaller bundle
         run: pyinstaller packaging/nova_studio_dashboard.spec --noconfirm --clean
