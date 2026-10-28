@@ -1,13 +1,18 @@
 # Never commit model weights, user media, voices, footage or generated output.
+# NOTE: these are scoped so they cannot match the SOURCE package
+# src/nova_studio/models/ (code), only workspace model/weight directories.
 *.gguf
 *.onnx
 *.bin
 *.safetensors
 *.pt
 *.pth
-models/
-weights/
-voices/
+/models/
+/weights/
+/voices/
+# Workspace model/weight dirs live under the user-data folders below.
+NovaStudio/models/
+.nova_home/models/
 *.mp4
 *.mov
 *.wav
