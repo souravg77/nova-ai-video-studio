@@ -43,14 +43,33 @@ jobs:
           python -m pip install -r requirements/webapp.txt -r requirements/dev.txt pyinstaller
 
       - name: Run full test suite
-        run: python -m pytest -rf --tb=short --junit-xml=pytest-report.xml
+        shell: pwsh
+        run: |
+          python -m pytest -rf --tb=short -o junit_logging=all `
+            --junit-xml=pytest-report.xml 2>&1 | Tee-Object -FilePath pytest-out.txt
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            # Surface the failing-test lines into the job summary AND as
+            # workflow errors, so the failure is visible without the artifact.
+            "## Pytest failures`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            "``````" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            Get-Content pytest-out.txt | Select-String -Pattern "FAILED|ERROR|assert|Error|Traceback" |
+              ForEach-Object { $_.Line } | Select-Object -First 60 |
+              Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            "``````" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            Get-Content pytest-out.txt | Select-String -Pattern "^FAILED|^ERROR" |
+              ForEach-Object { Write-Host ("::error::" + $_.Line) }
+          }
+          exit $code
 
       - name: Upload test report (on failure)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: pytest-report
-          path: pytest-report.xml
+          path: |
+            pytest-report.xml
+            pytest-out.txt
           if-no-files-found: ignore
 
       - name: Build PyInstaller bundle
