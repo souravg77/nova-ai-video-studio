@@ -1,7 +1,5 @@
 """P4.6 photo -> still-video export: real MP4, honest blockers, originals kept."""
 import hashlib
-import os
-import stat
 import subprocess
 
 import pytest
@@ -16,21 +14,8 @@ pytestmark = pytest.mark.export
 
 @pytest.fixture
 def fake_piper(tmp_path, monkeypatch):
-    from shutil import which
-    if not which("ffmpeg"):
-        pytest.skip("ffmpeg required")
-    bindir = tmp_path / "bin"
-    bindir.mkdir()
-    piper = bindir / "piper"
-    piper.write_text(
-        "#!/usr/bin/env bash\nset -e\nOUT=''\n"
-        "while [ $# -gt 0 ]; do case \"$1\" in --output_file) OUT=\"$2\"; "
-        "shift 2;; --model) shift 2;; *) shift;; esac; done\n"
-        "cat >/dev/null\n"
-        "ffmpeg -y -f lavfi -i sine=frequency=220:duration=2 -ar 22050 "
-        "\"$OUT\" >/dev/null 2>&1\n")
-    piper.chmod(piper.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    from _fake_piper import install_fake_piper  # tests/ is on pythonpath
+    install_fake_piper(tmp_path, monkeypatch)
     voice = tmp_path / "v.onnx"
     voice.write_bytes(b"x")
     (tmp_path / "v.onnx.json").write_text("{}")
