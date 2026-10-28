@@ -66,9 +66,15 @@ class TTSAdapter(AIAdapter):
             return AdapterResult(False,
                                  message="No narration text supplied for TTS.")
         t0 = time.time()
+        # Resolve the full path to the piper launcher. On Windows subprocess
+        # with a bare name does not find .bat/.cmd/.exe on PATH the way the
+        # shell does; shutil.which honours PATHEXT and returns the real path,
+        # which subprocess can then run directly.
+        piper_exe = shutil.which("piper") or "piper"
         try:
             proc = subprocess.run(
-                ["piper", "--model", self.voice_path, "--output_file", out_path],
+                [piper_exe, "--model", self.voice_path,
+                 "--output_file", out_path],
                 input=text, capture_output=True, text=True, timeout=300)
             if proc.returncode != 0 or not Path(out_path).exists():
                 return AdapterResult(False, message=f"Piper failed: {proc.stderr}")

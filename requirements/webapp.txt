@@ -5,3 +5,6 @@ waitress>=3.0        # production WSGI server used by the desktop launcher
 pywebview>=5.0       # native desktop window (no browser, no console)
 # Live CPU meter (cross-platform; falls back to loadavg if absent).
 psutil>=5.9
+# Phase 4 photo intake/preparation (image quality, crop/align).
+Pillow>=10.0
+opencv-python-headless>=4.8
