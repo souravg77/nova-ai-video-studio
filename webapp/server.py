@@ -145,15 +145,26 @@ def create_app(workspace: Path | None = None) -> Flask:
     # ---- media upload + serving --------------------------------------
     media_dir = ws / "studio_media"
     media_dir.mkdir(parents=True, exist_ok=True)
-    media: dict[str, dict] = {}   # id -> {path, kind, name, w, h, dur}
+    media: dict[str, dict] = {}  # id -> {path, kind, name, w, h, dur}
 
     _IMG = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif"}
     _VID = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
     _AUD = {".wav", ".mp3", ".aac", ".m4a", ".flac", ".ogg"}
 
+    def _probe_media(path: Path, *, label: str):
+        from nova_studio.media.probe import FFmpegNotFound, probe
+        try:
+            info = probe(path)
+            if not info.ok:
+                return {"ok": False, "name": label, "message": info.error or "Unsupported media file."}
+            return {"ok": True, "name": label, "data": info}
+        except FFmpegNotFound as exc:
+            return {"ok": False, "name": label, "message": str(exc)}
+        except Exception as exc:
+            return {"ok": False, "name": label, "message": f"Could not read file: {exc}"}
+
     @app.route("/api/upload", methods=["POST"])
     def upload():
-        from nova_studio.media.probe import probe
         from werkzeug.utils import secure_filename
         saved = []
         for f in request.files.getlist("files"):
@@ -163,12 +174,17 @@ def create_app(workspace: Path | None = None) -> Flask:
                     else "audio" if ext in _AUD else None)
             if kind is None:
                 saved.append({"ok": False, "name": name,
-                              "message": f"Unsupported type {ext}"})
+                              "message": f"Unsupported type: {ext or 'unknown'}"})
                 continue
             mid = uuid.uuid4().hex[:12]
             dest = media_dir / f"{mid}{ext}"
             f.save(str(dest))
-            info = probe(dest)
+            result = _probe_media(dest, label=name)
+            if not result["ok"]:
+                saved.append({"ok": False, "name": name,
+                              "message": result["message"]})
+                continue
+            info = result["data"]
             entry = {"id": mid, "path": str(dest), "kind": kind, "name": name,
                      "w": info.width, "h": info.height,
                      "dur": info.duration_s, "ok": info.ok}
@@ -177,17 +193,19 @@ def create_app(workspace: Path | None = None) -> Flask:
         return jsonify({"files": saved})
 
     def _register_media(src: Path, name: str) -> dict:
-        from nova_studio.media.probe import probe
         ext = src.suffix.lower()
         kind = ("image" if ext in _IMG else "video" if ext in _VID
                 else "audio" if ext in _AUD else None)
         if kind is None:
-            return {"ok": False, "name": name, "message": f"Unsupported {ext}"}
+            return {"ok": False, "name": name, "message": f"Unsupported type: {ext or 'unknown'}"}
         mid = uuid.uuid4().hex[:12]
         import shutil
         dest = media_dir / f"{mid}{ext}"
         shutil.copyfile(str(src), str(dest))
-        info = probe(dest)
+        result = _probe_media(dest, label=name)
+        if not result["ok"]:
+            return {"ok": False, "name": name, "message": result["message"]}
+        info = result["data"]
         entry = {"id": mid, "path": str(dest), "kind": kind, "name": name,
                  "w": info.width, "h": info.height, "dur": info.duration_s,
                  "ok": info.ok}
@@ -405,3 +423,7 @@ def _run_render(studio, data: dict, job: "RenderJob", ws: Path) -> None:
     except Exception as exc:  # pragma: no cover - defensive
         job.state = "failed"
         job.blocker = f"{type(exc).__name__}: {exc}"
+
+
+# Keep the original module content below as-is; this file was previously edited in-place.
+# The helper above is the new recovery logic for unsupported media imports.
