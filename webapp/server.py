@@ -1,86 +1,28 @@
-"""Flask backend for the NOVA Studio dashboard.
-
-Serves the dashboard and exposes a small JSON API that drives the REAL,
-tested NOVA engine (hardware detection, voices, photo intake, still-video
-export). It binds to 127.0.0.1 only — this is a local desktop app, not a
-public server.
-
-Every endpoint is honest: capability states, blockers and validation come
-from the same modules the test suite covers. Rendering produces a real,
-validated MP4 via phase4.still_video.StillVideoExporter.
-"""
+"""Flask backend for the NOVA Studio desktop dashboard."""
 from __future__ import annotations
 
+import shutil
 import sys
 import threading
 import uuid
 from pathlib import Path
 
-# Make the bundled src importable whether run from source or frozen.
+# Ensure the engine is importable from source and from a PyInstaller bundle.
 _HERE = Path(__file__).resolve().parent
-_SRC = _HERE.parent / "src"
+_ROOT = _HERE.parent
+_SRC = _ROOT / "src"
 if _SRC.exists() and str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from flask import (Flask, jsonify, request, send_from_directory,  # noqa: E402
-                   send_file, abort)
+from flask import Flask, abort, jsonify, request, send_file, send_from_directory  # noqa: E402
 
 STATIC = _HERE / "static"
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif", ".tif", ".tiff", ".heic", ".heif", ".avif", ".jfif"}
+_VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".wmv", ".flv", ".mpeg", ".mpg", ".3gp", ".3g2", ".ts", ".mts", ".m2ts"}
+_AUDIO_EXTS = {".wav", ".mp3", ".aac", ".m4a", ".flac", ".ogg", ".opus", ".wma", ".m4b"}
 
 
-def _add_piper_to_path(models_dir: Path) -> None:
-    """Prepend the downloaded Piper engine dir (if any) to PATH."""
-    import os
-    piper_root = Path(models_dir) / "tts" / "piper"
-    if not piper_root.exists():
-        return
-    # The archive may extract into tts/piper/ or tts/piper/piper/.
-    for cand in (piper_root, piper_root / "piper"):
-        exe = cand / ("piper.exe" if os.name == "nt" else "piper")
-        if exe.exists():
-            os.environ["PATH"] = str(cand) + os.pathsep + os.environ.get("PATH", "")
-            return
-
-
-def _cpu_percent() -> int:
-    try:
-        import psutil  # optional
-        return int(psutil.cpu_percent(interval=0.1))
-    except Exception:
-        # Lightweight estimate from load average when psutil is absent.
-        try:
-            import os
-            la = os.getloadavg()[0]
-            cores = os.cpu_count() or 1
-            return min(99, int(la / cores * 100))
-        except Exception:
-            return 0
-
-
-class RenderJob:
-    def __init__(self, job_id: str) -> None:
-        self.id = job_id
-        self.state = "running"      # running | completed | failed
-        self.progress = 0.0
-        self.stage = "Starting…"
-        self.output_path = ""
-        self.has_audio = False
-        self.has_subtitles = False
-        self.duration_s = 0.0
-        self.blocker = ""
-        self.fallback = ""
-
-
-_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif",
-               ".tif", ".tiff", ".heic", ".heif", ".avif", ".jfif"}
-_VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v",
-              ".wmv", ".flv", ".mpeg", ".mpg", ".3gp", ".3g2",
-              ".ts", ".mts", ".m2ts"}
-_AUDIO_EXTS = {".wav", ".mp3", ".aac", ".m4a", ".flac", ".ogg",
-              ".opus", ".wma", ".m4b"}
-
-
-def _media_kind_for_name(name: str) -> str | None:
+def _media_kind(name: str) -> str | None:
     ext = Path(name).suffix.lower()
     if ext in _IMAGE_EXTS:
         return "image"
@@ -91,217 +33,227 @@ def _media_kind_for_name(name: str) -> str | None:
     return None
 
 
+def _probe_media(path: Path, label: str) -> dict:
+    """Probe uploaded media; use image/video libraries if ffprobe is unavailable."""
+    from nova_studio.media.probe import FFmpegNotFound, MediaInfo, probe
+    kind = _media_kind(label) or _media_kind(path.name)
+    try:
+        info = probe(path)
+        if info.ok:
+            return {"ok": True, "name": label, "data": info}
+    except FFmpegNotFound:
+        info = None
+    except Exception as exc:
+        info = None
+        probe_error = str(exc)
+    else:
+        probe_error = info.error if info else "Could not inspect media."
+
+    # Pillow handles still images without needing ffprobe, including formats
+    # supported by the installed Pillow codecs.
+    if kind == "image":
+        try:
+            from PIL import Image
+            with Image.open(path) as image:
+                width, height = image.size
+                image.verify()
+            return {"ok": True, "name": label, "data": MediaInfo(
+                path=str(path), ok=True, width=width, height=height)}
+        except Exception as exc:
+            return {"ok": False, "name": label, "message": f"Image could not be decoded: {exc}"}
+
+    # OpenCV is a fallback for video metadata when ffprobe is unavailable.
+    if kind == "video":
+        try:
+            import cv2
+            cap = cv2.VideoCapture(str(path))
+            try:
+                if cap.isOpened():
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+                    count = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0
+                    if width > 0 and height > 0:
+                        duration = count / fps if fps > 0 else None
+                        return {"ok": True, "name": label, "data": MediaInfo(
+                            path=str(path), ok=True, width=width, height=height,
+                            duration_s=duration)}
+            finally:
+                cap.release()
+        except Exception:
+            pass
+    return {"ok": False, "name": label, "message": locals().get("probe_error", "ffprobe could not read this file.")}
+
+
+def _add_piper_to_path(models_dir: Path) -> None:
+    import os
+    root = Path(models_dir) / "tts" / "piper"
+    for candidate in (root, root / "piper"):
+        exe = candidate / ("piper.exe" if os.name == "nt" else "piper")
+        if exe.exists():
+            os.environ["PATH"] = str(candidate) + os.pathsep + os.environ.get("PATH", "")
+            return
+
+
+def _cpu_percent() -> int:
+    try:
+        import psutil
+        return int(psutil.cpu_percent(interval=0.1))
+    except Exception:
+        return 0
+
+
+class RenderJob:
+    def __init__(self, job_id: str) -> None:
+        self.id = job_id
+        self.state = "running"
+        self.progress = 0.0
+        self.stage = "Starting…"
+        self.output_path = ""
+        self.has_audio = False
+        self.has_subtitles = False
+        self.duration_s = 0.0
+        self.blocker = ""
+        self.fallback = ""
+
+
 def create_app(workspace: Path | None = None) -> Flask:
     from nova_studio.config import AppConfig, Paths
     from nova_studio.core.studio import Studio
 
-    ws = workspace or (Path.home() / ".nova_home")
+    ws = Path(workspace) if workspace else Path.home() / ".nova_home"
     cfg = AppConfig(paths=Paths.create(ws))
-
-    # If the user downloaded the Piper engine via the AI Models panel, it lives
-    # in <models>/tts/piper. Put it on PATH so narration finds it.
     _add_piper_to_path(cfg.paths.models)
-
     studio = Studio(cfg)
-
     app = Flask(__name__, static_folder=None)
+    app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024 * 1024
     jobs: dict[str, RenderJob] = {}
+    media_dir = ws / "studio_media"
+    media_dir.mkdir(parents=True, exist_ok=True)
+    media: dict[str, dict] = {}
 
-    # ---- static ------------------------------------------------------
     @app.route("/")
     def index():
         return send_from_directory(STATIC, "index.html")
 
     @app.route("/<path:path>")
     def assets(path):
-        target = STATIC / path
-        if not target.exists():
+        if not (STATIC / path).exists():
             abort(404)
         return send_from_directory(STATIC, path)
 
-    # ---- API ---------------------------------------------------------
+    @app.route("/api/health")
+    def health():
+        return jsonify({"ok": True})
+
     @app.route("/api/hardware")
     def hardware():
-        r = studio.report
-        reg = studio.generation_registry(installed_ids={"sadtalker"})
-        th = reg.decide("sadtalker")
-        return jsonify({
-            "cpu_name": r.cpu_name,
-            "cpu_pct": _cpu_percent(),
-            "ram_gb": r.physical_ram_gb,
-            "has_gpu": r.has_nvidia_cuda,
-            "render_ready": "ffmpeg" in r.backends_available,
-            "summary": r.human_summary(),
-            "talking_head_supported": th.can_attempt,
-            "talking_head_blocker": th.blocker,
-        })
+        report = studio.report
+        talking = studio.generation_registry(installed_ids={"sadtalker"}).decide("sadtalker")
+        return jsonify({"cpu_name": report.cpu_name, "cpu_pct": _cpu_percent(),
+                        "ram_gb": report.physical_ram_gb,
+                        "has_gpu": report.has_nvidia_cuda,
+                        "render_ready": "ffmpeg" in report.backends_available,
+                        "summary": report.human_summary(),
+                        "talking_head_supported": talking.can_attempt,
+                        "talking_head_blocker": talking.blocker})
 
     @app.route("/api/voices")
     def voices():
         gallery = studio.voice_gallery()
-        names = []
-        for e in gallery.engines:
-            if e.available:
-                for v in e.voices:
-                    names.append(f"{e.display_name}: {v.name}")
+        names = [f"{engine.display_name}: {voice.name}" for engine in gallery.engines
+                 if engine.available for voice in engine.voices]
         return jsonify({"voices": names,
                         "engines": [{"id": e.engine_id, "available": e.available,
                                      "reason": e.reason} for e in gallery.engines]})
 
     @app.route("/api/audition", methods=["POST"])
     def audition():
-        data = request.get_json(force=True, silent=True) or {}
+        data = request.get_json(silent=True) or {}
         voice = studio.resolver.resolve_tts_voice()
         if not voice:
-            return jsonify({"ok": False,
-                            "message": "No Piper voice installed (add one to "
-                                       "models/tts)."})
+            return jsonify({"ok": False, "message": "No Piper voice installed (add one to models/tts)."})
         from nova_studio.voice.expression import ExpressionSettings
-        res = studio.audition_voice(
-            "piper", voice.path, text=data.get("text", "NOVA voice preview."),
+        result = studio.audition_voice("piper", voice.path,
+            text=data.get("text", "NOVA voice preview."),
             expression=ExpressionSettings(speed=float(data.get("speed", 1.0))))
-        return jsonify(res)
-
-    # ---- media upload + serving --------------------------------------
-    media_dir = ws / "studio_media"
-    media_dir.mkdir(parents=True, exist_ok=True)
-    media: dict[str, dict] = {}  # id -> {path, kind, name, w, h, dur}
-
-   def _probe_media(path: Path, *, label: str):
-    from nova_studio.media.probe import FFmpegNotFound, probe, MediaInfo
-    kind = _media_kind_for_name(path.name) or _media_kind_for_name(label)
-
-    def _fallback():
-        if kind == "image":
-            try:
-                from PIL import Image
-                with Image.open(path) as img:
-                    w, h = img.size
-                    return {"ok": True, "name": label, "data": MediaInfo(path=str(path), ok=True, kind="image", width=w, height=h, duration_s=0.0)}
-            except Exception:
-                pass
-        elif kind == "video":
-            try:
-                import cv2
-                cap = cv2.VideoCapture(str(path))
-                if cap.isOpened():
-                    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
-                    count = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0
-                    dur = (count / fps) if fps > 0 else 0.0
-                    cap.release()
-                    if w > 0 and h > 0:
-                        return {"ok": True, "name": label, "data": MediaInfo(path=str(path), ok=True, kind="video", width=w, height=h, duration_s=dur)}
-            except Exception:
-                pass
-        return None
-
-    try:
-        info = probe(path)
-        if not info.ok:
-            fb = _fallback()
-            if fb:
-                return fb
-            return {"ok": False, "name": label, "message": info.error or "Unsupported media file."}
-        return {"ok": True, "name": label, "data": info}
-    except (FFmpegNotFound, Exception) as exc:
-        fb = _fallback()
-        if fb:
-            return fb
-        if isinstance(exc, FFmpegNotFound):
-            return {"ok": False, "name": label, "message": str(exc)}
-        return {"ok": False, "name": label, "message": f"Could not read file: {exc}"} }"}
+        return jsonify(result)
 
     @app.route("/api/upload", methods=["POST"])
     def upload():
         from werkzeug.utils import secure_filename
-        saved = []
-        for f in request.files.getlist("files"):
-           ext = Path(f.filename or "file").suffix.lower()
-            name = secure_filename(f.filename or "file")
-            kind = _media_kind_for_namename)
-            if kind is None:
-                saved.append({"ok": False, "name": name,
-                              "message": f"Unsupported type: {ext or 'unknown'}"})
+        results = []
+        for file in request.files.getlist("files"):
+            name = secure_filename(file.filename or "file")
+            kind = _media_kind(name)
+            if not kind:
+                results.append({"ok": False, "name": name, "message": f"Unsupported type: {Path(name).suffix or 'unknown'}"})
                 continue
-            mid = uuid.uuid4().hex[:12]
-            dest = media_dir / f"{mid}{ext}"
-            f.save(str(dest))
-            result = _probe_media(dest, label=name)
-            if not result["ok"]:
-                saved.append({"ok": False, "name": name,
-                              "message": result["message"]})
-                continue
-            info = result["data"]
-            entry = {"id": mid, "path": str(dest), "kind": kind, "name": name,
-                     "w": info.width, "h": info.height,
-                     "dur": info.duration_s, "ok": info.ok}
-            media[mid] = entry
-            saved.append({**entry, "url": f"/api/media/{mid}"})
-        return jsonify({"files": saved})
+            media_id = uuid.uuid4().hex[:12]
+            dest = media_dir / f"{media_id}{Path(name).suffix.lower()}"
+            file.save(dest)
+            results.append(_save_media(dest, name, kind, media_id))
+        return jsonify({"files": results})
 
-    def _register_media(src: Path, name: str) -> dict:
-        ext = src.suffix.lower()
-        kind = _media_kind_for_name(name)
-        if kind is None:
-            return {"ok": False, "name": name, "message": f"Unsupported type: {ext or 'unknown'}"}
-        mid = uuid.uuid4().hex[:12]
-        import shutil
-        dest = media_dir / f"{mid}{ext}"
-        shutil.copyfile(str(src), str(dest))
-        result = _probe_media(dest, label=name)
+    def _save_media(path: Path, name: str, kind: str, media_id: str | None = None) -> dict:
+        media_id = media_id or uuid.uuid4().hex[:12]
+        result = _probe_media(path, name)
         if not result["ok"]:
+            path.unlink(missing_ok=True)
             return {"ok": False, "name": name, "message": result["message"]}
         info = result["data"]
-        entry = {"id": mid, "path": str(dest), "kind": kind, "name": name,
-                 "w": info.width, "h": info.height, "dur": info.duration_s,
-                 "ok": info.ok}
-        media[mid] = entry
-        return {**entry, "url": f"/api/media/{mid}"}
+        entry = {"id": media_id, "path": str(path), "kind": kind, "name": name,
+                 "w": info.width, "h": info.height, "dur": info.duration_s, "ok": True}
+        media[media_id] = entry
+        return {**entry, "url": f"/api/media/{media_id}"}
 
     @app.route("/api/import_paths", methods=["POST"])
     def import_paths():
-        """Import files chosen via the native file dialog (local paths)."""
-        data = request.get_json(force=True, silent=True) or {}
-        saved = []
+        data = request.get_json(silent=True) or {}
+        results = []
         for raw in data.get("paths", []):
-            p = Path(raw)
-            if not p.exists():
-                saved.append({"ok": False, "name": raw,
-                              "message": "File not found"})
+            source = Path(raw)
+            if not source.is_file():
+                results.append({"ok": False, "name": str(raw), "message": "File not found"})
                 continue
-            saved.append(_register_media(p, p.name))
-        return jsonify({"files": saved})
+            name = source.name
+            kind = _media_kind(name)
+            if not kind:
+                results.append({"ok": False, "name": name, "message": f"Unsupported type: {source.suffix or 'unknown'}"})
+                continue
+            media_id = uuid.uuid4().hex[:12]
+            dest = media_dir / f"{media_id}{source.suffix.lower()}"
+            try:
+                shutil.copyfile(source, dest)
+                results.append(_save_media(dest, name, kind, media_id))
+            except OSError as exc:
+                results.append({"ok": False, "name": name, "message": f"Could not copy file: {exc}"})
+        return jsonify({"files": results})
 
-    @app.route("/api/media/<mid>")
-    def serve_media(mid):
-        entry = media.get(mid)
-        if not entry or not Path(entry["path"]).exists():
+    @app.route("/api/media/<media_id>")
+    def serve_media(media_id):
+        entry = media.get(media_id)
+        if not entry or not Path(entry["path"]).is_file():
             abort(404)
         return send_file(entry["path"])
 
-    @app.route("/api/thumb/<mid>")
-    def thumb(mid):
-        """A JPEG thumbnail for an image or the first video frame."""
-        entry = media.get(mid)
+    @app.route("/api/thumb/<media_id>")
+    def thumb(media_id):
+        entry = media.get(media_id)
         if not entry:
             abort(404)
         if entry["kind"] == "image":
             return send_file(entry["path"])
-        # extract a frame from video/audio-cover via ffmpeg
         from nova_studio.media.probe import ffmpeg_path
         import subprocess
-        tp = media_dir / f"{mid}_thumb.jpg"
-        if not tp.exists():
-            subprocess.run([ffmpeg_path(), "-y", "-i", entry["path"],
-                            "-frames:v", "1", "-vf", "scale=160:-1", str(tp)],
-                           capture_output=True, timeout=30)
-        if tp.exists():
-            return send_file(str(tp))
-        abort(404)
+        thumbnail = media_dir / f"{media_id}_thumb.jpg"
+        if not thumbnail.exists():
+            try:
+                subprocess.run([ffmpeg_path(), "-y", "-i", entry["path"], "-frames:v", "1", "-vf", "scale=160:-1", str(thumbnail)], capture_output=True, timeout=30, check=True)
+            except Exception:
+                abort(404)
+        return send_file(str(thumbnail))
 
-    # ---- AI model downloader -----------------------------------------
     from webapp.models import ModelDownloader
     downloader = ModelDownloader(studio.config.paths.models)
 
@@ -311,13 +263,11 @@ def create_app(workspace: Path | None = None) -> Flask:
 
     @app.route("/api/models/download", methods=["POST"])
     def models_download():
-        data = request.get_json(force=True, silent=True) or {}
-        key = data.get("key", "")
+        data = request.get_json(silent=True) or {}
         try:
-            downloader.start(key)
+            downloader.start(data.get("key", ""))
         except KeyError:
-            return jsonify({"ok": False, "message": f"Unknown model '{key}'."})
-        # A fresh model changes capability; refresh once it lands (polled by UI).
+            return jsonify({"ok": False, "message": f"Unknown model '{data.get('key', '')}'."}), 400
         return jsonify({"ok": True})
 
     @app.route("/api/models/refresh", methods=["POST"])
@@ -328,41 +278,32 @@ def create_app(workspace: Path | None = None) -> Flask:
 
     @app.route("/api/script", methods=["POST"])
     def script():
-        """Auto-write per-scene narration from a brief using the local LLM.
-
-        Returns an honest blocker when the Qwen model/runtime is not installed.
-        """
-        data = request.get_json(force=True, silent=True) or {}
+        data = request.get_json(silent=True) or {}
         brief = (data.get("brief") or "").strip()
-        n = int(data.get("scenes", 3))
         if not brief:
-            return jsonify({"ok": False, "message": "Enter a topic first."})
+            return jsonify({"ok": False, "message": "Enter a topic first."}), 400
         from nova_studio.adapters.llm import ScriptAdapter
         model = studio.resolver.resolve_script_model()
         adapter = ScriptAdapter(model_path=model.path if model else None)
-        avail = adapter.availability()
-        if not avail.available:
-            return jsonify({"ok": False, "message": avail.reason,
-                            "need_download": True})
-        res = adapter.run({"brief": brief, "scenes": n})
-        if not res.ok:
-            return jsonify({"ok": False, "message": res.message})
-        scenes = res.metrics.get("scenes", [])
-        return jsonify({"ok": True, "scenes": scenes})
+        available = adapter.availability()
+        if not available.available:
+            return jsonify({"ok": False, "message": available.reason, "need_download": True})
+        result = adapter.run({"brief": brief, "scenes": int(data.get("scenes", 3))})
+        if not result.ok:
+            return jsonify({"ok": False, "message": result.message})
+        return jsonify({"ok": True, "scenes": result.metrics.get("scenes", [])})
 
     @app.route("/api/render", methods=["POST"])
     def render():
-        data = request.get_json(force=True, silent=True) or {}
-        # Resolve media ids in scenes to real file paths.
-        for sc in data.get("scenes", []):
-            mid = sc.get("media_id")
-            if mid and mid in media:
-                sc["photo_path"] = media[mid]["path"]
+        data = request.get_json(silent=True) or {}
+        for scene in data.get("scenes", []):
+            media_id = scene.get("media_id")
+            if media_id in media:
+                scene["photo_path"] = media[media_id]["path"]
         job_id = uuid.uuid4().hex[:12]
         job = RenderJob(job_id)
         jobs[job_id] = job
-        threading.Thread(target=_run_render, args=(studio, data, job, ws),
-                         daemon=True).start()
+        threading.Thread(target=_run_render, args=(studio, data, job, ws), daemon=True).start()
         return jsonify({"job_id": job_id})
 
     @app.route("/api/job/<job_id>")
@@ -370,16 +311,14 @@ def create_app(workspace: Path | None = None) -> Flask:
         job = jobs.get(job_id)
         if not job:
             abort(404)
-        out = {
-            "state": job.state, "progress": job.progress, "stage": job.stage,
-            "blocker": job.blocker, "fallback": job.fallback,
-            "has_audio": job.has_audio, "has_subtitles": job.has_subtitles,
-            "duration_s": job.duration_s,
-        }
+        result = {"state": job.state, "progress": job.progress, "stage": job.stage,
+                  "blocker": job.blocker, "fallback": job.fallback,
+                  "has_audio": job.has_audio, "has_subtitles": job.has_subtitles,
+                  "duration_s": job.duration_s}
         if job.state == "completed":
-            out["output_url"] = f"/api/output/{job_id}"
-            out["output_path"] = job.output_path
-        return jsonify(out)
+            result["output_url"] = f"/api/output/{job_id}"
+            result["output_path"] = job.output_path
+        return jsonify(result)
 
     @app.route("/api/output/<job_id>")
     def output(job_id):
@@ -391,83 +330,46 @@ def create_app(workspace: Path | None = None) -> Flask:
     return app
 
 
-def _run_render(studio, data: dict, job: "RenderJob", ws: Path) -> None:
-    """Drive the real still-video exporter; update the job as it progresses."""
-    from nova_studio.phase4.still_video import (ExportConfig, PhotoScene,
-                                               StillVideoExporter)
+def _run_render(studio, data: dict, job: RenderJob, workspace: Path) -> None:
+    from nova_studio.phase4.still_video import ExportConfig, PhotoScene, StillVideoExporter
     from nova_studio.voice.narration import VoiceProfile
     from nova_studio.voice.engine import EngineCapabilities
     from nova_studio.voice.expression import ExpressionSettings
-
     try:
-        work = ws / "studio_render" / job.id
+        work = workspace / "studio_render" / job.id
         work.mkdir(parents=True, exist_ok=True)
-
-        # Use each scene's real uploaded image when present; only fall back to
-        # a solid colour slate for scenes the user left without media.
         from nova_studio.media.probe import ffmpeg_path
         import subprocess
-        scenes_in = data.get("scenes", [])
-        colours = ["0x1a2b4c", "0x1f5130", "0x4a2a6a", "0x25507a"]
+        colors = ["0x1a2b4c", "0x1f5130", "0x4a2a6a", "0x25507a"]
         scenes = []
-        for i, s in enumerate(scenes_in):
-            src = s.get("photo_path")
-            if src and Path(src).exists():
-                photo = src
-            else:
+        for i, scene in enumerate(data.get("scenes", [])):
+            photo = scene.get("photo_path")
+            if not photo or not Path(photo).is_file():
                 photo = str(work / f"slate_{i}.png")
-                subprocess.run([ffmpeg_path(), "-y", "-f", "lavfi",
-                                "-i", f"color=c={colours[i % 4]}:s=1920x1080:d=1",
-                                "-frames:v", "1", photo],
-                               capture_output=True, timeout=60)
-            scenes.append(PhotoScene(
-                photo_path=photo,
-                caption=s.get("caption", ""), narration=s.get("narration", ""),
-                duration_s=float(s.get("duration_s", 5)),
-                motion=s.get("motion", "kenburns")))
-
-        want_narr = bool(data.get("want_narration", True))
-        voice = studio.resolver.resolve_tts_voice()
+                subprocess.run([ffmpeg_path(), "-y", "-f", "lavfi", "-i", f"color=c={colors[i % len(colors)]}:s=1920x1080:d=1", "-frames:v", "1", photo], capture_output=True, timeout=60, check=True)
+            scenes.append(PhotoScene(photo_path=str(photo), caption=scene.get("caption", ""),
+                narration=scene.get("narration", ""), duration_s=float(scene.get("duration_s", 5)),
+                motion=scene.get("motion", "kenburns")))
+        voice = studio.resolver.resolve_tts_voice() if data.get("want_narration", True) else None
         profile = None
-        if want_narr and voice:
-            gallery = studio.voice_gallery()
-            eng = gallery.engine("piper")
-            profile = VoiceProfile(
-                engine_id="piper", voice_path=voice.path,
-                capabilities=eng.capabilities if eng else EngineCapabilities(),
+        if voice:
+            engine = studio.voice_gallery().engine("piper")
+            profile = VoiceProfile(engine_id="piper", voice_path=voice.path,
+                capabilities=engine.capabilities if engine else EngineCapabilities(),
                 expression=ExpressionSettings())
-        elif want_narr and not voice:
-            # Honest: no voice installed -> captions-only, say so (no fake audio)
-            want_narr = False
-
-        cfg = ExportConfig(
-            width=int(data.get("width", 1280)),
-            height=int(data.get("height", 720)),
-            fps=int(data.get("fps", 24)), preset="veryfast",
-            want_narration=want_narr,
+        config = ExportConfig(width=int(data.get("width", 1280)), height=int(data.get("height", 720)),
+            fps=int(data.get("fps", 24)), preset="veryfast", want_narration=bool(profile),
             want_subtitles=bool(data.get("want_subtitles", True)))
-
-        out = work / "studio_output.mp4"
-
-        def prog(p, m):
-            job.progress = p
-            job.stage = m
-
-        exporter = StillVideoExporter(studio.renderer)
-        result = exporter.export(scenes, work, str(out), cfg,
-                                 voice_profile=profile, progress=prog)
+        output_path = work / "studio_output.mp4"
+        def progress(value, message):
+            job.progress, job.stage = value, message
+        result = StillVideoExporter(studio.renderer).export(scenes, work, str(output_path), config,
+            voice_profile=profile, progress=progress)
         if result.ok:
-            job.state = "completed"
-            job.output_path = result.output_path
-            job.has_audio = result.has_audio
-            job.has_subtitles = result.has_subtitles
-            job.duration_s = result.duration_s
-            job.progress = 1.0
-            job.stage = "Completed and validated"
+            job.state, job.output_path, job.has_audio = "completed", result.output_path, result.has_audio
+            job.has_subtitles, job.duration_s = result.has_subtitles, result.duration_s
+            job.progress, job.stage = 1.0, "Completed and validated"
         else:
-            job.state = "failed"
-            job.blocker = result.blocker
-            job.fallback = result.suggested_fallback
-    except Exception as exc:  # pragma: no cover - defensive
-        job.state = "failed"
-        job.blocker = f"{type(exc).__name__}: {exc}"
+            job.state, job.blocker, job.fallback = "failed", result.blocker, result.suggested_fallback
+    except Exception as exc:
+        job.state, job.blocker = "failed", f"{type(exc).__name__}: {exc}"
