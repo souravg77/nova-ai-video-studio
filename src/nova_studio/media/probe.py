@@ -115,7 +115,7 @@ def probe(path: str | Path) -> MediaInfo:
         out = subprocess.run(
             [ffprobe_path(), "-v", "error", "-print_format", "json",
              "-show_format", "-show_streams", str(p)],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
         )
     except FFmpegNotFound:
         raise
