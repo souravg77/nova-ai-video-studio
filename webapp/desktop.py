@@ -71,15 +71,15 @@ class JsApi:
         try:
             import webview
             if kinds == "image":
-                ft = ("Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif)",)
+                ft = ("Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif;*.tif;*.tiff;*.heic;*.heif;*.avif;*.jfif)",)
             elif kinds == "audio":
-                ft = ("Audio (*.wav;*.mp3;*.aac;*.m4a;*.flac;*.ogg)",)
+                ft = ("Audio (*.wav;*.mp3;*.aac;*.m4a;*.flac;*.ogg;*.opus;*.wma;*.m4b)",)
             elif kinds == "video":
-                ft = ("Video (*.mp4;*.mov;*.mkv;*.avi;*.webm;*.m4v)",)
+                ft = ("Video (*.mp4;*.mov;*.mkv;*.avi;*.webm;*.m4v;*.wmv;*.flv;*.mpeg;*.mpg;*.3gp;*.3g2;*.ts;*.mts;*.m2ts)",)
             else:
-                ft = ("Media (*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif;"
-                      "*.mp4;*.mov;*.mkv;*.avi;*.webm;*.m4v;"
-                      "*.wav;*.mp3;*.aac;*.m4a;*.flac;*.ogg)",
+                ft = ("Media (*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif;*.tif;*.tiff;*.heic;*.heif;*.avif;*.jfif;"
+                      "*.mp4;*.mov;*.mkv;*.avi;*.webm;*.m4v;*.wmv;*.flv;*.mpeg;*.mpg;*.3gp;*.3g2;*.ts;*.mts;*.m2ts;"
+                      "*.wav;*.mp3;*.aac;*.m4a;*.flac;*.ogg;*.opus;*.wma;*.m4b)",
                       "All files (*.*)")
             result = self._window.create_file_dialog(
                 webview.OPEN_DIALOG, allow_multiple=True, file_types=ft)
