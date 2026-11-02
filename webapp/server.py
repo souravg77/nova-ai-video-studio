@@ -71,6 +71,26 @@ class RenderJob:
         self.fallback = ""
 
 
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif",
+               ".tif", ".tiff", ".heic", ".heif", ".avif", ".jfif"}
+_VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v",
+              ".wmv", ".flv", ".mpeg", ".mpg", ".3gp", ".3g2",
+              ".ts", ".mts", ".m2ts"}
+_AUDIO_EXTS = {".wav", ".mp3", ".aac", ".m4a", ".flac", ".ogg",
+              ".opus", ".wma", ".m4b"}
+
+
+def _media_kind_for_name(name: str) -> str | None:
+    ext = Path(name).suffix.lower()
+    if ext in _IMAGE_EXTS:
+        return "image"
+    if ext in _VIDEO_EXTS:
+        return "video"
+    if ext in _AUDIO_EXTS:
+        return "audio"
+    return None
+
+
 def create_app(workspace: Path | None = None) -> Flask:
     from nova_studio.config import AppConfig, Paths
     from nova_studio.core.studio import Studio
@@ -147,10 +167,6 @@ def create_app(workspace: Path | None = None) -> Flask:
     media_dir.mkdir(parents=True, exist_ok=True)
     media: dict[str, dict] = {}  # id -> {path, kind, name, w, h, dur}
 
-    _IMG = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif"}
-    _VID = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
-    _AUD = {".wav", ".mp3", ".aac", ".m4a", ".flac", ".ogg"}
-
     def _probe_media(path: Path, *, label: str):
         from nova_studio.media.probe import FFmpegNotFound, probe
         try:
@@ -170,8 +186,7 @@ def create_app(workspace: Path | None = None) -> Flask:
         for f in request.files.getlist("files"):
             name = secure_filename(f.filename or "file")
             ext = Path(name).suffix.lower()
-            kind = ("image" if ext in _IMG else "video" if ext in _VID
-                    else "audio" if ext in _AUD else None)
+            kind = _media_kind_for_name(name)
             if kind is None:
                 saved.append({"ok": False, "name": name,
                               "message": f"Unsupported type: {ext or 'unknown'}"})
@@ -194,8 +209,7 @@ def create_app(workspace: Path | None = None) -> Flask:
 
     def _register_media(src: Path, name: str) -> dict:
         ext = src.suffix.lower()
-        kind = ("image" if ext in _IMG else "video" if ext in _VID
-                else "audio" if ext in _AUD else None)
+        kind = _media_kind_for_name(name)
         if kind is None:
             return {"ok": False, "name": name, "message": f"Unsupported type: {ext or 'unknown'}"}
         mid = uuid.uuid4().hex[:12]
@@ -423,7 +437,3 @@ def _run_render(studio, data: dict, job: "RenderJob", ws: Path) -> None:
     except Exception as exc:  # pragma: no cover - defensive
         job.state = "failed"
         job.blocker = f"{type(exc).__name__}: {exc}"
-
-
-# Keep the original module content below as-is; this file was previously edited in-place.
-# The helper above is the new recovery logic for unsupported media imports.
