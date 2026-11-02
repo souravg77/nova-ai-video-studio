@@ -167,26 +167,60 @@ def create_app(workspace: Path | None = None) -> Flask:
     media_dir.mkdir(parents=True, exist_ok=True)
     media: dict[str, dict] = {}  # id -> {path, kind, name, w, h, dur}
 
-    def _probe_media(path: Path, *, label: str):
-        from nova_studio.media.probe import FFmpegNotFound, probe
-        try:
-            info = probe(path)
-            if not info.ok:
-                return {"ok": False, "name": label, "message": info.error or "Unsupported media file."}
-            return {"ok": True, "name": label, "data": info}
-        except FFmpegNotFound as exc:
+   def _probe_media(path: Path, *, label: str):
+    from nova_studio.media.probe import FFmpegNotFound, probe, MediaInfo
+    kind = _media_kind_for_name(path.name) or _media_kind_for_name(label)
+
+    def _fallback():
+        if kind == "image":
+            try:
+                from PIL import Image
+                with Image.open(path) as img:
+                    w, h = img.size
+                    return {"ok": True, "name": label, "data": MediaInfo(path=str(path), ok=True, kind="image", width=w, height=h, duration_s=0.0)}
+            except Exception:
+                pass
+        elif kind == "video":
+            try:
+                import cv2
+                cap = cv2.VideoCapture(str(path))
+                if cap.isOpened():
+                    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+                    count = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0
+                    dur = (count / fps) if fps > 0 else 0.0
+                    cap.release()
+                    if w > 0 and h > 0:
+                        return {"ok": True, "name": label, "data": MediaInfo(path=str(path), ok=True, kind="video", width=w, height=h, duration_s=dur)}
+            except Exception:
+                pass
+        return None
+
+    try:
+        info = probe(path)
+        if not info.ok:
+            fb = _fallback()
+            if fb:
+                return fb
+            return {"ok": False, "name": label, "message": info.error or "Unsupported media file."}
+        return {"ok": True, "name": label, "data": info}
+    except (FFmpegNotFound, Exception) as exc:
+        fb = _fallback()
+        if fb:
+            return fb
+        if isinstance(exc, FFmpegNotFound):
             return {"ok": False, "name": label, "message": str(exc)}
-        except Exception as exc:
-            return {"ok": False, "name": label, "message": f"Could not read file: {exc}"}
+        return {"ok": False, "name": label, "message": f"Could not read file: {exc}"} }"}
 
     @app.route("/api/upload", methods=["POST"])
     def upload():
         from werkzeug.utils import secure_filename
         saved = []
         for f in request.files.getlist("files"):
+           ext = Path(f.filename or "file").suffix.lower()
             name = secure_filename(f.filename or "file")
-            ext = Path(name).suffix.lower()
-            kind = _media_kind_for_name(name)
+            kind = _media_kind_for_namename)
             if kind is None:
                 saved.append({"ok": False, "name": name,
                               "message": f"Unsupported type: {ext or 'unknown'}"})
