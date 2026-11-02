@@ -1,4 +1,7 @@
 # Core runtime — no AI model weights, no heavy ML frameworks.
 # These are the only hard dependencies for Tier 0 (editing/export) + project store.
-pydantic>=2.5,<3
+# Keep pydantic and pydantic-core pinned to a compatible pair so Windows app startup
+# does not fail with the "installed pydantic-core version is incompatible" error.
+pydantic>=2.10.6,<3
+pydantic-core>=2.27.2,<3
 platformdirs>=4.0,<5
