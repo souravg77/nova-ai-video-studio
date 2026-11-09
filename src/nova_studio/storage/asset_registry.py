@@ -5,6 +5,7 @@ references and probed metadata (roadmap section 7, milestone 5).
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from ..media.probe import probe
@@ -14,6 +15,27 @@ _IMAGE_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif"}
 _VIDEO_EXT = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 _AUDIO_EXT = {".wav", ".mp3", ".aac", ".m4a", ".flac", ".ogg"}
 _SUB_EXT = {".srt", ".vtt", ".ass"}
+
+
+_RESERVED = {"CON", "PRN", "AUX", "NUL",
+             *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+
+
+def safe_filename(name: str | None, fallback: str = "output", max_len: int = 80) -> str:
+    """A file name Windows will accept, derived from a user-typed title.
+
+    A project called "My film: part 1?" used to render to "My film" (0 bytes)
+    with the video hidden in an NTFS alternate data stream, because ':' is a
+    stream separator and '?' is not allowed. Forbidden characters become '-',
+    reserved device names are avoided and trailing dots/spaces removed.
+    """
+    s = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", (name or "").strip())
+    s = re.sub(r"-{2,}", "-", s).strip(" .-")[:max_len].rstrip(" .")
+    if not s:
+        return fallback
+    if s.split(".")[0].upper() in _RESERVED:
+        s = f"{s}_"
+    return s
 
 
 def classify(path: str | Path) -> AssetKind | None:

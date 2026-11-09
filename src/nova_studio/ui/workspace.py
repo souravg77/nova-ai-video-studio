@@ -16,6 +16,7 @@ Dock positions/sizes are remembered in settings.json.
 """
 from __future__ import annotations
 
+import html
 from datetime import datetime
 
 from PySide6.QtCore import QByteArray, QObject, Qt, QTimer, Signal
@@ -173,7 +174,7 @@ class WorkspaceWindow(QMainWindow):
         self._refresh_toolbar()
 
     def _refresh_toolbar(self) -> None:
-        self.project_label.setText(f"<b>{self.project.name}</b>")
+        self.project_label.setText(f"<b>{html.escape(self.project.name)}</b>")
         eff, _ = self.studio.effective_profile(Profile.AUTO)
         self.profile_label.setText(f"Profile: {eff.value}")
         settings = load_settings(self.studio.config.paths.workspace)

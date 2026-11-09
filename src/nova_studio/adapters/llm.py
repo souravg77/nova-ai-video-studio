@@ -72,8 +72,12 @@ class ScriptAdapter(AIAdapter):
             llm = Llama(**kwargs)
             messages = _chat_messages(brief, n_scenes)
             # Qwen2.5-Instruct supports chat completion via llama.cpp.
+            # Constrain decoding to a JSON schema: small local models (e.g.
+            # Qwen2.5 1.5B) otherwise drop quotes and the reply is unusable.
             out = llm.create_chat_completion(
-                messages=messages, max_tokens=900, temperature=0.7)
+                messages=messages, max_tokens=900, temperature=0.7,
+                response_format={"type": "json_object",
+                                 "schema": scenes_schema(n_scenes)})
             text = out["choices"][0]["message"]["content"]
         except Exception as exc:
             return AdapterResult(False, message=f"Model run failed: {exc}")
@@ -93,13 +97,26 @@ class ScriptAdapter(AIAdapter):
                      "tokens_hint": len(text.split())})
 
 
+def scenes_schema(n_scenes: int) -> dict:
+    """JSON schema the local model's reply is constrained to."""
+    scene = {"type": "object",
+             "properties": {"title": {"type": "string"},
+                            "narration": {"type": "string"},
+                            "caption": {"type": "string"}},
+             "required": ["title", "narration", "caption"]}
+    return {"type": "object",
+            "properties": {"scenes": {"type": "array", "items": scene,
+                                      "minItems": n_scenes, "maxItems": n_scenes}},
+            "required": ["scenes"]}
+
+
 def _chat_messages(brief: str, n_scenes: int) -> list[dict]:
     system = (
-        "You are a concise video script writer. You ALWAYS reply with ONLY a "
-        "JSON array, no prose, no markdown fences.")
+        "You are a concise video script writer. You ALWAYS reply with ONLY "
+        "JSON, no prose, no markdown fences.")
     user = (
         f"Write a {n_scenes}-scene script for a short video about: {brief}\n"
-        f"Return a JSON array of exactly {n_scenes} objects, each with keys "
+        f'Return {{"scenes": [...]}} with exactly {n_scenes} objects, each with keys '
         f'"title" (short), "narration" (1-2 spoken sentences), and "caption" '
         f"(a few on-screen words). JSON only.")
     return [{"role": "system", "content": system},
@@ -114,6 +131,13 @@ def parse_scenes(text: str, n_scenes: int) -> list[dict]:
     """
     if not text:
         return []
+    # Schema-constrained replies are {"scenes": [...]}.
+    try:
+        whole = json.loads(text)
+        if isinstance(whole, dict) and isinstance(whole.get("scenes"), list):
+            text = json.dumps(whole["scenes"])
+    except Exception:
+        pass
     # Strip code fences.
     fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
     candidate = fenced.group(1) if fenced else text
