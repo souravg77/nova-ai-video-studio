@@ -88,12 +88,12 @@ def test_broken_bundled_copy_falls_through_to_path(tmp_path, monkeypatch, real_t
 
 @pytest.mark.ffmpeg
 def test_order_override_then_bundled_then_path(tmp_path, monkeypatch, real_tools):
-    real_ff, real_fp = real_tools["ffmpeg"], real_tools["ffprobe"]
-    bundled = tmp_path / "app"
-    bundled.mkdir()
-    shutil.copy(real_ff, bundled / real_ff.name)
-    shutil.copy(real_fp, bundled / real_fp.name)
-    _isolate(monkeypatch, path_dirs=[real_ff.parent], bundled=[bundled])
+    real_ff = real_tools["ffmpeg"]
+    # Use the real tools' own folder as the "bundled" dir rather than copying
+    # them: on CI the tool on PATH is a Chocolatey shim, which only works from
+    # its install location, so a copy would (correctly) be rejected.
+    real_dir = real_ff.parent
+    _isolate(monkeypatch, path_dirs=[real_dir], bundled=[real_dir])
 
     assert check_tool("ffmpeg", refresh=True).source == "bundled"
 
