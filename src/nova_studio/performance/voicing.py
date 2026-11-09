@@ -10,7 +10,10 @@ Every spoken line is a character performance, so:
 * a take counts only if a real audio file comes back and FFprobe finds an
   audio stream in it (the TTS adapter checks this); a failed take leaves no
   file behind;
-* one line can be re-voiced without touching any other line's audio.
+* one line can be re-voiced without touching any other line's audio, and a
+  failed retake keeps the previous good take (in the file and the manifest);
+* a pace can be applied per line (Piper's length_scale) through ``pace_for``.
+  Piper has no emotion control, so emotion is never claimed here.
 
 Takes are returned to the caller, and ``write_manifest`` records them next to
 the audio, so the project file format does not change here.
@@ -40,6 +43,7 @@ class LineTake:
     duration_s: Optional[float] = None
     engine_id: str = ""
     voice_id: str = ""
+    length_scale: Optional[float] = None
 
 
 def _safe(name: str) -> str:
@@ -52,10 +56,14 @@ def line_audio_path(out_dir: Path, line: DialogueLine) -> Path:
 
 class DialogueVoicer:
     def __init__(self, voices_dir: Path,
-                 tts_factory: Callable[[str], TTSAdapter] = lambda p: TTSAdapter(voice_path=p)
+                 tts_factory: Callable[[str], TTSAdapter] = lambda p: TTSAdapter(voice_path=p),
+                 pace_for: Optional[Callable[[DialogueLine], Optional[float]]] = None
                  ) -> None:
         self.voices_dir = Path(voices_dir)
         self._tts = tts_factory
+        # Returns Piper's length_scale for a line (>1 slower, <1 faster), or
+        # None for the voice's own pace.
+        self._pace_for = pace_for or (lambda _line: None)
 
     def check_line(self, line: DialogueLine, characters) -> Optional[str]:
         """Why this line can't be voiced, or None if it can be tried."""
@@ -91,8 +99,12 @@ class DialogueVoicer:
         wav = line_audio_path(out_dir, line)
         tmp = wav.with_suffix(".tmp.wav")
         tmp.unlink(missing_ok=True)
-        res = self._tts(str(self.voices_dir / speaker.voice.voice_id)).run(
-            {"text": line.text, "out_path": str(tmp)})
+        params = {"text": line.text, "out_path": str(tmp)}
+        scale = self._pace_for(line)
+        if scale is not None:
+            params["length_scale"] = scale
+            take.length_scale = scale
+        res = self._tts(str(self.voices_dir / speaker.voice.voice_id)).run(params)
         if not res.ok:
             tmp.unlink(missing_ok=True)
             take.message = res.message
@@ -114,7 +126,10 @@ class DialogueVoicer:
 
 
 def write_manifest(takes: list[LineTake], out_dir: Path) -> Path:
-    """Merge these takes into out_dir/takes.json (other lines' entries kept)."""
+    """Merge these takes into out_dir/takes.json (other lines' entries kept).
+
+    A failed retake does not erase a line's good take, whose audio is still
+    on disk: the good entry stays and the failure is noted beside it."""
     path = Path(out_dir) / "takes.json"
     data: dict = {}
     if path.exists():
@@ -123,6 +138,11 @@ def write_manifest(takes: list[LineTake], out_dir: Path) -> Path:
         except (OSError, ValueError):
             data = {}
     for t in takes:
+        prev = data.get(t.line_id)
+        if (not t.ok and isinstance(prev, dict) and prev.get("ok")
+                and Path(prev.get("audio_path", "")).is_file()):
+            prev["last_error"] = t.message
+            continue
         data[t.line_id] = asdict(t)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")

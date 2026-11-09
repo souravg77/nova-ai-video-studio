@@ -72,9 +72,14 @@ class TTSAdapter(AIAdapter):
         # which subprocess can then run directly.
         piper_exe = shutil.which("piper") or "piper"
         try:
+            cmd = [piper_exe, "--model", self.voice_path,
+                   "--output_file", out_path]
+            scale = params.get("length_scale")
+            if scale is not None:
+                # Piper's speed control: >1 is slower, <1 is faster.
+                cmd += ["--length_scale", f"{float(scale):g}"]
             proc = subprocess.run(
-                [piper_exe, "--model", self.voice_path,
-                 "--output_file", out_path],
+                cmd,
                 input=text, capture_output=True, text=True, timeout=300)
             if proc.returncode != 0 or not Path(out_path).exists():
                 return AdapterResult(False, message=f"Piper failed: {proc.stderr}")
