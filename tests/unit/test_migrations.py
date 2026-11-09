@@ -102,3 +102,50 @@ def test_new_project_records_current_schema_version():
     from nova_studio.models.project import Project
     from nova_studio.storage.migrations import PROJECT_SCHEMA_VERSION
     assert Project().schema_version == PROJECT_SCHEMA_VERSION
+
+
+def _v1_manifest() -> dict:
+    """A manifest as Phase 1 wrote it: schema 1, no performance fields."""
+    data = _v0_manifest()
+    data["schema_version"] = 1
+    for k in ("language", "characters", "dialogue", "shots", "engine_selection"):
+        data.pop(k, None)
+    return data
+
+
+def test_v1_project_upgrades_to_v2_without_losing_scenes():
+    from nova_studio.storage.sqlite_store import project_from_manifest
+    p = project_from_manifest(_v1_manifest())
+    assert p.schema_version == 2
+    assert p.scenes[0].title == "Opening"
+    assert p.characters == [] and p.shots == [] and p.engine_selection.video is None
+
+
+def test_characters_and_pinned_shots_survive_save_and_reload(tmp_path):
+    from nova_studio.performance.characters import (
+        Candidate, CandidateSource, add_candidates, approve_candidate,
+        create_character, lock_identity)
+    from nova_studio.performance.planner import (
+        DialogueLine, EngineSelection, Shot, pin_shot)
+    p = Project(name="Short film")
+    maya = add_candidates(create_character("maya", "Maya"), [Candidate(
+        id="c1", image_path="/m.png", source=CandidateSource.UPLOADED)])
+    maya = lock_identity(approve_candidate(maya, "c1"))
+    p.put_character(maya)
+    p.dialogue.append(DialogueLine(id="l1", order=1, speaker_id="maya", text="Hi."))
+    p.shots.append(pin_shot(Shot(id="s1", duration_s=6, character_ids=["maya"],
+                                 dialogue_line_ids=["l1"]), p.characters))
+    p.engine_selection = EngineSelection(video="gemini-omni-flash")
+
+    with ProjectStore(tmp_path / "db.sqlite3") as store:
+        store.save_project(p)
+        back = store.load_project(p.id)
+    assert back.character("maya").locked
+    assert back.character("maya").history[-1].action == "locked"
+    assert back.shots[0].pins[0].reference_id == maya.approved.reference_id
+    assert back.engine_selection.video == "gemini-omni-flash"
+
+    out = export_project_manifest(back, tmp_path / "film.json")
+    assert json.loads(out.read_text())["schema_version"] == 2
+    assert "api_key" not in out.read_text().lower()
+    assert load_project_manifest(out).character("maya").approved.version == 1

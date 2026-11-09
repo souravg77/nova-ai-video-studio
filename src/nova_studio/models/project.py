@@ -8,6 +8,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 from ..storage.migrations import PROJECT_SCHEMA_VERSION
+from ..performance.characters import Character
+from ..performance.planner import DialogueLine, EngineSelection, Shot
 
 
 def _uid() -> str:
@@ -71,6 +73,15 @@ class Project(BaseModel):
     scenes: list[Scene] = Field(default_factory=list)
     assets: list[Asset] = Field(default_factory=list)
 
+    # Character performance data (schema v2). Characters keep their full
+    # approval history; shots stay pinned to the reference they were planned
+    # with. The engine selection names engines; it never stores API keys.
+    language: str = "en"
+    characters: list[Character] = Field(default_factory=list)
+    dialogue: list[DialogueLine] = Field(default_factory=list)
+    shots: list[Shot] = Field(default_factory=list)
+    engine_selection: EngineSelection = Field(default_factory=EngineSelection)
+
     # Warnings/metadata stored so a project reopens honestly on other PCs.
     generation_notes: list[str] = Field(default_factory=list)
 
@@ -84,6 +95,17 @@ class Project(BaseModel):
 
     def asset_by_id(self, asset_id: str) -> Optional[Asset]:
         return next((a for a in self.assets if a.id == asset_id), None)
+
+    def character(self, character_id: str) -> Optional[Character]:
+        return next((c for c in self.characters if c.id == character_id), None)
+
+    def put_character(self, character: Character) -> Character:
+        """Insert or replace a character by id (identity rules live in
+        performance.characters; this only stores the result)."""
+        self.characters = [c for c in self.characters if c.id != character.id]
+        self.characters.append(character)
+        self.touch()
+        return character
 
     def add_scene(self, scene: Scene) -> Scene:
         scene.index = len(self.scenes)

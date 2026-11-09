@@ -295,3 +295,20 @@ def _check_lipsync(lipsync: Optional[EngineSpec], add) -> None:
                 f"from the base video.")
         if not lipsync.capabilities.head_motion_control:
             add(Severity.WARNING, "lipsync_head", f"{lipsync.name} has no head-motion control.")
+
+
+def pin_shot(shot: Shot, characters: list[Character]) -> Shot:
+    """Pin each approved character in the shot to their current reference.
+
+    Only an explicit call re-pins; a later re-approval never changes a shot
+    on its own (the planner warns instead).
+    """
+    by_id = {c.id: c for c in characters}
+    pins = []
+    for cid in shot.character_ids:
+        c = by_id.get(cid)
+        if c is not None and c.approved:
+            pins.append(ReferencePin(character_id=cid,
+                                     reference_id=c.approved.reference_id,
+                                     version=c.approved.version))
+    return shot.model_copy(update={"pins": pins})
