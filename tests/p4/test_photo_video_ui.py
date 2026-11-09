@@ -41,6 +41,8 @@ class _Studio:
                                       "target_height": 360, "target_fps": 24})()
 
     def new_project(self, n): return self.project
+
+    def open_recent_project(self, n): return self.project
     def save_project(self, p): pass
     def refresh_pipeline(self): pass
     def effective_profile(self, r):

@@ -13,7 +13,8 @@ from typing import Callable, Optional
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDoubleSpinBox, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
+    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
+    QPlainTextEdit, QPushButton,
     QSplitter, QVBoxLayout, QWidget)
 
 from ..performance.engines import EngineRegistry, Role
@@ -92,12 +93,13 @@ class ShotPlanPanel(QWidget):
         r2.addWidget(self.speaker_combo); r2.addWidget(self.line_edit, 1)
         r2.addWidget(self.add_line_btn)
         dv.addLayout(r2)
-        rv.addWidget(line_box)
+        rv.addWidget(line_box, 1)
 
         plan_box = QGroupBox("Plan"); pv = QVBoxLayout(plan_box)
-        self.plan_label = QLabel(""); self.plan_label.setWordWrap(True)
-        self.plan_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        pv.addWidget(self.plan_label)
+        # Read-only and scrollable: a plan can list many limitations, and a
+        # fixed label clipped them.
+        self.plan_text = QPlainTextEdit(); self.plan_text.setReadOnly(True)
+        pv.addWidget(self.plan_text, 1)
         self.pin_btn = QPushButton("Pin current approved designs")
         self.pin_btn.setToolTip("Ties this shot to each character's current "
                                 "approved design. Later re-approvals don't "
@@ -112,7 +114,7 @@ class ShotPlanPanel(QWidget):
         pv.addWidget(self.voice_btn)
         self.voice_label = QLabel(""); self.voice_label.setWordWrap(True)
         pv.addWidget(self.voice_label)
-        rv.addWidget(plan_box)
+        rv.addWidget(plan_box, 1)
         split.addWidget(right)
 
     # -- state ---------------------------------------------------------------
@@ -175,7 +177,7 @@ class ShotPlanPanel(QWidget):
         if self.voicer is None:
             self.voice_btn.setToolTip("Voicing isn't available in this view.")
         if shot is None:
-            self.plan_label.setText("Add a shot to see its plan.")
+            self.plan_text.setPlainText("Add a shot to see its plan.")
             return
         lines = {d.id: d for d in self.project.dialogue}
         for lid in shot.dialogue_line_ids:
@@ -190,7 +192,7 @@ class ShotPlanPanel(QWidget):
         has_speaker = self.speaker_combo.count() > 0
         self.add_line_btn.setEnabled(has_speaker)
         self.line_edit.setEnabled(has_speaker)
-        self.plan_label.setText("\n".join(view.plan_lines(self.plan_for(shot))))
+        self.plan_text.setPlainText("\n".join(view.plan_lines(self.plan_for(shot))))
 
     # -- actions -------------------------------------------------------------
     def _engine_changed(self, key: str) -> None:
