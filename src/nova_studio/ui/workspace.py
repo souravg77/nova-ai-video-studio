@@ -98,6 +98,9 @@ class WorkspaceWindow(QMainWindow):
         # Characters mode: Character Studio + shot plan (Phase 2 panels).
         from .performance_mount import mount_performance
         self.performance = mount_performance(self)
+        # Script mode: script editor, breakdown and line direction (M2).
+        from .script_studio import mount_script
+        self.script = mount_script(self)
         self._restore_layout()
 
     # ---- helpers --------------------------------------------------------

@@ -37,7 +37,7 @@ SCRIPT = textwrap.dedent('''
     out["edit_is_editor"] = tabs.widget(win._tab_index["edit"]) is win.editor
 
     win.resize(1400, 860)
-    win.show_mode("script"); app.processEvents()
+    win.show_mode("storyboard"); app.processEvents()
     body = tabs.currentWidget().findChild(QLabel, "placeholder_body")
     out["placeholder_fits"] = body.height() >= body.heightForWidth(body.width())
     out["placeholder_text"] = body.text()
@@ -117,7 +117,7 @@ def test_workspace_shell_end_to_end(tmp_path):
     out = json.loads(lines[0][len("RESULT "):])
 
     assert out["titles"] == [
-        "Script (not built yet)", "Characters",
+        "Script", "Characters",
         "Storyboard (not built yet)", "Generate (not built yet)", "Edit & render"]
     assert out["current"] == "Edit & render" and out["edit_is_editor"]
     # A literal ampersand, not a keyboard-mnemonic underline.
@@ -125,9 +125,9 @@ def test_workspace_shell_end_to_end(tmp_path):
 
     # Placeholder text is complete and not clipped.
     assert out["placeholder_fits"]
-    assert "Auto video from brief" in out["placeholder_text"]
+    assert "Edit & render" in out["placeholder_text"]
     assert out["after_mount"][1] == "Characters" and out["mounted"]
-    assert out["after_mount"][0] == "Script (not built yet)"
+    assert out["after_mount"][0] == "Script"
     assert out["current_kept"] == "Edit & render"
     assert out["unknown_mode_rejected"]
     assert out["switched"] == "Storyboard (not built yet)"
