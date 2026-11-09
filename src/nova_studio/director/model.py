@@ -37,7 +37,10 @@ class LineDirection(BaseModel):
     extension: str = ""      # e.g. "V.O.", "O.S."
     emotion: Optional[str] = None
     intensity: Optional[str] = None
+    pace: Optional[str] = None
+    # Where emotion/intensity/pace came from, and why (e.g. "from '(angrily)'").
     source: Optional[DirectionSource] = None
+    note: str = ""
     approved: bool = False
 
 

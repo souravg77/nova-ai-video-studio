@@ -21,8 +21,8 @@ from datetime import datetime, timezone
 
 from ..performance.characters import create_character
 from ..performance.planner import DialogueLine, Shot
-from .model import (DirectionSource, DirectorData, LineDirection, SceneInfo,
-                    ShotKind, ShotNote)
+from .direction import apply_script_directions
+from .model import DirectorData, LineDirection, SceneInfo, ShotKind, ShotNote
 from .parser import Element, ElementKind, ParsedScript
 
 WORDS_PER_SECOND = 2.5          # ~150 words per minute, natural speech
@@ -160,8 +160,7 @@ def apply_breakdown(project, parsed: ParsedScript, script_text: str,
                                              speaker_id=speaker, text=e.text))
                 lines.append(LineDirection(
                     line_id=lid, scene_index=scene.index,
-                    parenthetical=e.parenthetical, extension=e.extension,
-                    source=DirectionSource.SCRIPT if e.parenthetical else None))
+                    parenthetical=e.parenthetical, extension=e.extension))
                 add_shot(ShotKind.DIALOGUE, scene.index,
                          dialogue_seconds(e.text, e.parenthetical),
                          f"{e.speaker}: “{_short(e.text, 80)}”",
@@ -182,6 +181,9 @@ def apply_breakdown(project, parsed: ParsedScript, script_text: str,
     director.lines = lines
     director.shot_notes = notes
     director.breakdown_at = datetime.now(timezone.utc).isoformat()
+    # The writer's own directions ("(angrily)", "(beat)") are read right away;
+    # like everything else they still need the user's approval.
+    apply_script_directions(director)
     project.touch()
 
     summary.scenes = len(scenes)
