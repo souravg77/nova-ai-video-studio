@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from shutil import which
 
 import pytest
 
 
 def _png(path: Path, color: str, size: str):
-    ff = which("ffmpeg")
+    from nova_studio.media.probe import check_tool
+    ff = check_tool("ffmpeg").path
     if not ff:
         pytest.skip("ffmpeg required")
     subprocess.run([ff, "-y", "-f", "lavfi",

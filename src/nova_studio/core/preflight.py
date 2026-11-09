@@ -67,3 +67,37 @@ def check_dev_setup_space(workspace: Path) -> PreflightResult:
         f"more."
     )
     return PreflightResult(ok, free, required, msg)
+
+
+@dataclass
+class FFmpegDiagnostics:
+    ok: bool
+    ffmpeg: str | None
+    ffprobe: str | None
+    source: str | None
+    version: str | None
+    message: str
+
+
+def check_ffmpeg(refresh: bool = False) -> FFmpegDiagnostics:
+    """Report which FFmpeg/FFprobe NOVA will use, and why others were rejected.
+
+    Lookup order: NOVA_FFMPEG / NOVA_FFPROBE / NOVA_FFMPEG_DIR override, then
+    the copy bundled beside the app, then PATH. Each candidate must actually
+    run and print a version banner.
+    """
+    from ..media.probe import check_tool
+
+    ff = check_tool("ffmpeg", refresh=refresh)
+    fp = check_tool("ffprobe", refresh=refresh)
+    ok = ff.ok and fp.ok
+    if ok:
+        msg = f"FFmpeg OK ({ff.source}): {ff.version}"
+    else:
+        missing = [c.name for c in (ff, fp) if not c.ok]
+        rejected = (ff.rejected or []) + (fp.rejected or [])
+        msg = (f"Missing or broken: {', '.join(missing)}. Editing and export "
+               f"need a working FFmpeg build.")
+        if rejected:
+            msg += " Rejected: " + "; ".join(rejected)
+    return FFmpegDiagnostics(ok, ff.path, fp.path, ff.source, ff.version, msg)

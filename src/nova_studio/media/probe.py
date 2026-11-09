@@ -18,79 +18,157 @@ class FFmpegNotFound(RuntimeError):
     pass
 
 
-def _candidate_ffmpeg_dirs() -> list[Path]:
-    """Return directories to search for bundled ffmpeg/ffprobe.
+# Environment overrides. Each may point at the binary itself or at the folder
+# holding it. NOVA_FFMPEG_DIR covers both tools at once.
+ENV_OVERRIDES = {
+    "ffmpeg": ("NOVA_FFMPEG", "NOVA_FFMPEG_DIR"),
+    "ffprobe": ("NOVA_FFPROBE", "NOVA_FFMPEG_DIR"),
+}
 
-    The desktop installer ships ffmpeg.exe and ffprobe.exe next to the app
-    executable, but shutil.which() only searches PATH. On a frozen app, the
-    current working directory is not guaranteed to be the install dir, so we
-    explicitly check the executable and bundle directories too.
+
+def _bundled_dirs() -> list[Path]:
+    """Folders where an installed/frozen NOVA ships ffmpeg.exe and ffprobe.exe.
+
+    The installer drops them next to the app executable (or in an 'ffmpeg'
+    subfolder). The current working directory is deliberately NOT searched:
+    on Windows that would let a stray or planted ffmpeg.exe in whatever folder
+    the user happens to be in take precedence.
     """
     dirs: list[Path] = []
-
-    # Frozen app / bundled install dir.
     if getattr(sys, "frozen", False):
         exe_dir = Path(sys.executable).resolve().parent
-        dirs.append(exe_dir)
-
-    # PyInstaller one-dir bundle.
+        dirs += [exe_dir, exe_dir / "ffmpeg", exe_dir / "ffmpeg" / "bin"]
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         dirs.append(Path(meipass).resolve())
+    return dirs
 
-    # Source checkout / repo root when running directly from source.
-    module_dir = Path(__file__).resolve().parents[2]
-    dirs.extend([
-        Path.cwd(),
-        module_dir,
-        module_dir / "packaging",
-        module_dir / "packaging" / "ffmpeg",
-    ])
 
-    seen: set[Path] = set()
+def _source_tree_dirs() -> list[Path]:
+    """Developer convenience: packaging/ffmpeg in a source checkout."""
+    root = Path(__file__).resolve().parents[3]
+    return [root / "packaging" / "ffmpeg"]
+
+
+def _exe_names(name: str) -> list[str]:
+    return [f"{name}.exe", name] if os.name == "nt" else [name]
+
+
+def _in_dir(d: Path, name: str) -> list[Path]:
+    return [d / n for n in _exe_names(name)]
+
+
+def _override_candidates(name: str) -> list[Path]:
     out: list[Path] = []
-    for d in dirs:
-        try:
-            resolved = d.resolve()
-        except Exception:
-            resolved = d
-        if resolved not in seen:
-            seen.add(resolved)
-            out.append(resolved)
+    for var in ENV_OVERRIDES[name]:
+        val = os.environ.get(var, "").strip().strip('"')
+        if not val:
+            continue
+        p = Path(val)
+        out += _in_dir(p, name) if p.is_dir() else [p]
     return out
 
 
-def _resolve_bin(name: str) -> str | None:
-    # 1) PATH lookup, including Windows PATHEXT resolution.
-    p = shutil.which(name)
-    if p:
-        return p
+def candidate_paths(name: str) -> list[tuple[str, Path]]:
+    """Ordered (source, path) candidates: override -> bundled -> PATH -> source tree."""
+    cands: list[tuple[str, Path]] = []
+    cands += [("override", p) for p in _override_candidates(name)]
+    for d in _bundled_dirs():
+        cands += [("bundled", p) for p in _in_dir(d, name)]
+    on_path = shutil.which(name)
+    if on_path:
+        cands.append(("PATH", Path(on_path)))
+    for d in _source_tree_dirs():
+        cands += [("source-tree", p) for p in _in_dir(d, name)]
+    return cands
 
-    # 2) bundled app-local search (important for frozen Windows installers).
-    for d in _candidate_ffmpeg_dirs():
-        for cand in (d / name, d / f"{name}.exe", d / f"{name}.bat", d / f"{name}.cmd"):
-            if cand.exists():
-                return str(cand)
 
-    return None
+@dataclass
+class ToolCheck:
+    name: str
+    path: str | None = None
+    source: str | None = None
+    version: str | None = None
+    rejected: list[str] | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.path is not None
+
+
+def _verify(path: Path, name: str) -> tuple[bool, str]:
+    """Run '<tool> -version' and require a genuine banner.
+
+    This rejects broken stand-ins such as a Chocolatey shim whose target is
+    missing (it prints 'Cannot find file ...' instead of a version banner).
+    """
+    if not path.is_file():
+        return False, "not a file"
+    try:
+        out = subprocess.run(
+            [str(path), "-hide_banner", "-version"], capture_output=True,
+            text=True, timeout=15, stdin=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            if sys.platform == "win32" else 0)
+    except Exception as exc:
+        return False, f"could not run: {exc}"
+    first = (out.stdout or "").strip().splitlines()[:1]
+    banner = first[0] if first else ""
+    if out.returncode != 0 or not banner.startswith(f"{name} version"):
+        detail = (out.stderr or out.stdout or "").strip().splitlines()[:1]
+        return False, f"not a working {name} ({detail[0] if detail else 'no version banner'})"
+    return True, banner
+
+
+_cache: dict[str, ToolCheck] = {}
+
+
+def check_tool(name: str, refresh: bool = False) -> ToolCheck:
+    """Find the first candidate that genuinely runs. Results are cached."""
+    if not refresh and name in _cache:
+        return _cache[name]
+    result = ToolCheck(name=name, rejected=[])
+    seen: set[str] = set()
+    for source, path in candidate_paths(name):
+        key = str(path).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if not path.exists():
+            if source == "override":
+                result.rejected.append(f"{path} ({source}): does not exist")
+            continue
+        ok, info = _verify(path, name)
+        if ok:
+            result.path, result.source, result.version = str(path), source, info
+            break
+        result.rejected.append(f"{path} ({source}): {info}")
+    _cache[name] = result
+    return result
+
+
+def reset_tool_cache() -> None:
+    _cache.clear()
+
+
+def _require(name: str) -> str:
+    chk = check_tool(name)
+    if chk.ok:
+        return chk.path  # type: ignore[return-value]
+    msg = (f"{name} not found. Install a trusted FFmpeg build, set "
+           f"{ENV_OVERRIDES[name][0]} to its path, or put it on PATH "
+           f"(roadmap section 6C).")
+    if chk.rejected:
+        msg += " Rejected: " + "; ".join(chk.rejected)
+    raise FFmpegNotFound(msg)
 
 
 def ffprobe_path() -> str:
-    p = _resolve_bin("ffprobe")
-    if not p:
-        raise FFmpegNotFound(
-            "ffprobe not found on PATH. Install a trusted FFmpeg build and "
-            "ensure ffmpeg/ffprobe are reachable (roadmap section 6C).")
-    return p
+    return _require("ffprobe")
 
 
 def ffmpeg_path() -> str:
-    p = _resolve_bin("ffmpeg")
-    if not p:
-        raise FFmpegNotFound(
-            "ffmpeg not found on PATH. Install a trusted FFmpeg build "
-            "(roadmap section 6C).")
-    return p
+    return _require("ffmpeg")
 
 
 @dataclass

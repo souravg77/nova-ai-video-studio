@@ -17,6 +17,7 @@ def _wav(ff, path, seconds, freq=330):
                     "-ar", "22050", str(path)], check=True, capture_output=True)
 
 
+@pytest.mark.ffmpeg
 def test_srt_timing_matches_audio(tmp_path):
     ff = ffmpeg_path()
     a0 = tmp_path / "a0.wav"; _wav(ff, a0, 3)
@@ -33,6 +34,7 @@ def test_srt_timing_matches_audio(tmp_path):
     assert "-->" in srt and srt.strip().startswith("1")
 
 
+@pytest.mark.ffmpeg
 def test_missing_audio_flagged_as_error(tmp_path):
     empty = tmp_path / "empty.wav"
     empty.write_bytes(b"")
@@ -42,6 +44,7 @@ def test_missing_audio_flagged_as_error(tmp_path):
     assert any(f.kind == "missing" and f.level == "error" for f in res.flags)
 
 
+@pytest.mark.ffmpeg
 def test_write_srt_file(tmp_path):
     ff = ffmpeg_path()
     a0 = tmp_path / "a0.wav"; _wav(ff, a0, 2)

@@ -42,6 +42,7 @@ def test_kenburns_duration_exact(assets, tmp_path):
     assert abs((info.duration_s or 0) - 3.0) < 0.3
 
 
+@pytest.mark.ffmpeg
 def test_render_no_scenes_fails_cleanly(tmp_path):
     out = tmp_path / "x.mp4"
     result = Renderer().render(RenderSpec(scenes=[], output_path=str(out)))
