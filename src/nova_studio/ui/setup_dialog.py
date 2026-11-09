@@ -14,7 +14,8 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
-from ..core.setup_check import (CheckItem, Status, module_available,
+from ..core.setup_check import (CheckItem, Status, local_preview_unavailable,
+                                module_available,
                                 overall_status, run_setup_checks)
 from ..settings import AppSettings, load_settings, save_settings
 
@@ -101,10 +102,14 @@ class SetupDialog(QDialog):
         ev.addWidget(self._note(
             "Off by default. When on, prompts and attached media for jobs you "
             "run with it are sent to Google using your own API key."))
-        self.preview_check = QCheckBox("Experimental local video preview (CPU)"
-                                       + not_in_build)
-        self.preview_check.setEnabled(False)
-        self.preview_check.setChecked(False)
+        self.preview_check = QCheckBox("Experimental local video preview (CPU)")
+        self.preview_check.setChecked(self.settings.local_video.experimental_preview_enabled)
+        reason = local_preview_unavailable(studio.config.paths.models)
+        if reason:
+            # Engine, runtime or weights missing: a disabled switch, never a fake one.
+            self.preview_check.setEnabled(False)
+            self.preview_check.setChecked(False)
+            self.preview_check.setText(self.preview_check.text() + f" ({reason})")
         ev.addWidget(self.preview_check)
         ev.addWidget(self._note(
             "Short, low-resolution motion previews made on this PC. "
@@ -172,6 +177,8 @@ class SetupDialog(QDialog):
         s.models_dir = None if not chosen or Path(chosen) == Path(default) else chosen
         if self.gemini_check.isEnabled():
             s.cloud.gemini_enabled = self.gemini_check.isChecked()
+        if self.preview_check.isEnabled():
+            s.local_video.experimental_preview_enabled = self.preview_check.isChecked()
         s.first_run_complete = True
         return s
 
