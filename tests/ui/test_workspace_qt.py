@@ -134,7 +134,7 @@ def test_workspace_shell_end_to_end(tmp_path):
     assert out["unknown_mode_rejected"]
     assert out["switched"] == "Storyboard (not built yet)"
 
-    assert out["perf_tabs"] == ["Character Studio", "Shot plan", "Generate"]
+    assert out["perf_tabs"] == ["Character Studio", "Shot plan", "Generate", "Scene"]
     # Cloud generation is off by default: Generate says so and sends nothing.
     assert not out["generate_enabled"]
     assert "switched off" in out["generate_blockers"]
