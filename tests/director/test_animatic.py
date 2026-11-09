@@ -119,3 +119,23 @@ def test_only_real_approved_designs_are_used_as_frames(tmp_path):
 def test_no_shots_is_refused(tmp_path):
     rep = build_animatic(Project(), Renderer(ffmpeg="unused"), None, tmp_path / "x.mp4")
     assert not rep.ok and "Break down a script" in rep.message
+
+
+@pytest.mark.ffmpeg
+def test_every_shot_has_on_screen_text_even_with_an_approved_frame(tmp_path):
+    text = ("INT. HALL - NIGHT\n\nElaine stands alone by the window.\n\n"
+            "ELAINE\nI promised I would.\n")
+    p = Project(name="Captions")
+    apply_breakdown(p, parse_script(text), text)
+    img = tmp_path / "e.png"
+    subprocess.run([ffmpeg_path(), "-y", "-f", "lavfi", "-i", "color=c=teal:s=320x240:d=1",
+                    "-frames:v", "1", str(img)], check=True, capture_output=True)
+    c = p.characters[0]
+    c = add_candidates(c, [Candidate(id="k", image_path=str(img), source=CandidateSource.UPLOADED)])
+    p.put_character(approve_candidate(c, "k"))
+    rep = build_animatic(p, Renderer(), None, tmp_path / "e.mp4",
+                         width=320, height=180, fps=12, preset="ultrafast")
+    # establishing (card), action naming Elaine (her approved frame), her line.
+    assert (rep.image_frames, rep.title_cards) == (2, 1)
+    assert rep.captions[1] == "Elaine stands alone by the window."
+    assert all(rep.captions)

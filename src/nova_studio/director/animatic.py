@@ -51,6 +51,7 @@ class AnimaticReport:
     voiced_lines: int = 0
     unvoiced: list[UnvoicedLine] = field(default_factory=list)
     lengthened: list[tuple[int, float, float]] = field(default_factory=list)  # (shot, from, to)
+    captions: list[str] = field(default_factory=list)   # on-screen text per shot
     message: str = ""
 
     def summary(self) -> str:
@@ -136,15 +137,18 @@ def build_animatic(project, renderer: Renderer, audio_dir: Optional[Path], out_p
         note = director.shot_note(shot.id)
         frame = _frame_for(shot, project.characters)
         spoken = [f"{names.get(lt.speaker_id, '?')}: {lt.text}" for lt in timing.lines]
+        label = (note.description if note and note.description else f"Shot {i + 1}")
+        # Dialogue shots show the line; every other shot shows what happens in
+        # it, whether its frame is an approved design or a title card (an image
+        # with no text left action shots unexplained).
+        caption = _short(" / ".join(spoken) if spoken else label)
         if frame:
             rep.image_frames += 1
-            caption = _short(" / ".join(spoken))
             scenes.append(SceneSpec("image", frame, dur, caption=caption))
         else:
             rep.title_cards += 1
-            label = (note.description if note and note.description else f"Shot {i + 1}")
-            caption = _short(" / ".join(spoken) if spoken else label)
             scenes.append(SceneSpec("color", None, dur, caption=caption, color=SLATE_COLOR))
+        rep.captions.append(caption)
 
         # Voiced lines at the timing model's positions; others share what is left.
         voiced = [lt for lt in timing.lines if lt.status == VOICED]
