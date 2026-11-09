@@ -106,6 +106,12 @@ class OmniRequest:
     # Continue a video this API generated earlier (Google's "extend" task).
     # Google decides how long it keeps that video; an expired id is an error.
     previous_interaction_id: Optional[str] = None
+    # What to do with that earlier video: "extend" (continue it, the default)
+    # or "edit" (change it as the prompt says, e.g. restyle or relight).
+    task: Optional[str] = None
+
+
+TASKS = ("extend", "edit")
 
 
 @dataclass
@@ -169,6 +175,13 @@ class GeminiOmniEngine:
         prompt = req.prompt.strip()
         if not prompt:
             raise OmniError("The shot has no prompt.")
+        task = req.task or ("extend" if req.previous_interaction_id else None)
+        if task is not None and task not in TASKS:
+            raise OmniError(f"Unknown task {task!r}.")
+        if task is not None and not req.previous_interaction_id:
+            raise OmniError(f"The {task} task needs an earlier Gemini clip.")
+        if task == "edit" and req.duration_s is not None:
+            raise OmniError("An edit keeps the clip's length; don't set a duration.")
         if req.duration_s is not None:
             if not (CAPABILITIES.min_duration_s <= req.duration_s
                     <= CAPABILITIES.max_duration_s):
@@ -179,7 +192,8 @@ class GeminiOmniEngine:
             prompt += f" The clip is about {req.duration_s:g} seconds long."
         firsts = [i for i in req.images if i.role == "first_frame"]
         if req.previous_interaction_id and req.images:
-            raise OmniError("Extending a clip takes a text prompt only.")
+            raise OmniError(f"{'Editing' if task == 'edit' else 'Extending'} "
+                            f"a clip takes a text prompt only.")
         lasts = [i for i in req.images if i.role == "last_frame"]
         refs = [i for i in req.images if i.role == "reference"]
         if lasts and not firsts:
@@ -197,7 +211,7 @@ class GeminiOmniEngine:
         }
         if req.previous_interaction_id:
             body["previous_interaction_id"] = req.previous_interaction_id
-            body["generation_config"] = {"video_config": {"task": "extend"}}
+            body["generation_config"] = {"video_config": {"task": task}}
         if not req.images:
             body["input"] = prompt
             return body
