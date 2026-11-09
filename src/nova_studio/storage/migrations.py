@@ -18,7 +18,7 @@ import sqlite3
 from typing import Callable
 
 # Bump when the Project model changes shape, and add a step below.
-PROJECT_SCHEMA_VERSION = 2
+PROJECT_SCHEMA_VERSION = 3
 # Bump when tables/indexes change, and add a step below.
 DB_SCHEMA_VERSION = 1
 
@@ -46,9 +46,17 @@ def _project_v1_to_v2(data: dict) -> dict:
     return data
 
 
+def _project_v2_to_v3(data: dict) -> dict:
+    # v3 adds the director's script and breakdown data. Existing characters,
+    # dialogue and shots are kept; they simply have no script behind them.
+    data.setdefault("director", {})
+    return data
+
+
 _PROJECT_STEPS: dict[int, Callable[[dict], dict]] = {
     0: _project_v0_to_v1,
     1: _project_v1_to_v2,
+    2: _project_v2_to_v3,
 }
 
 
