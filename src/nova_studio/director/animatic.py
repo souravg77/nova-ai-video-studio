@@ -25,6 +25,7 @@ from ..media.renderer import RenderSpec, Renderer, SceneSpec
 from ..performance.characters import production_readiness
 from ..performance.timing import (GAP_S, LEAD_IN_S, TAIL_S, VOICED, read_manifest,
                                   shot_timing)
+from ..sheets.locations import approved_frame
 from ..voice.subtitles import SubtitleCue, write_srt
 
 SLATE_COLOR = "0x1d1f26"
@@ -47,6 +48,7 @@ class AnimaticReport:
     duration_s: float = 0.0
     shots: int = 0
     image_frames: int = 0
+    location_frames: int = 0
     title_cards: int = 0
     voiced_lines: int = 0
     unvoiced: list[UnvoicedLine] = field(default_factory=list)
@@ -59,6 +61,7 @@ class AnimaticReport:
             return f"Animatic failed: {self.message}"
         parts = [f"Animatic exported: {self.shots} shot(s), {self.duration_s:.1f} s. "
                  f"{self.image_frames} shot(s) use an approved design, "
+                 f"{self.location_frames} an approved location, "
                  f"{self.title_cards} use a title card."]
         parts.append(f"{self.voiced_lines} line(s) voiced.")
         if self.unvoiced:
@@ -136,6 +139,13 @@ def build_animatic(project, renderer: Renderer, audio_dir: Optional[Path], out_p
 
         note = director.shot_note(shot.id)
         frame = _frame_for(shot, project.characters)
+        if frame:
+            rep.image_frames += 1
+        elif note is not None:
+            # No approved character in the shot: the scene's approved location.
+            frame = approved_frame(director.location_for_scene(note.scene_index))
+            if frame:
+                rep.location_frames += 1
         spoken = [f"{names.get(lt.speaker_id, '?')}: {lt.text}" for lt in timing.lines]
         label = (note.description if note and note.description else f"Shot {i + 1}")
         # Dialogue shots show the line; every other shot shows what happens in
@@ -143,7 +153,6 @@ def build_animatic(project, renderer: Renderer, audio_dir: Optional[Path], out_p
         # with no text left action shots unexplained).
         caption = _short(" / ".join(spoken) if spoken else label)
         if frame:
-            rep.image_frames += 1
             scenes.append(SceneSpec("image", frame, dur, caption=caption))
         else:
             rep.title_cards += 1

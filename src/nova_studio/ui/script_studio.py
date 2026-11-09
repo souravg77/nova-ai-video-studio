@@ -368,11 +368,25 @@ class ScriptStudioPanel(QWidget):
 def mount_script(window) -> ScriptStudioPanel:
     paths = window.studio.config.paths
     project_dir = paths.projects / window.project.id
+    from PySide6.QtWidgets import QTabWidget
+    from .locations_panel import LocationsPanel
+
+    def changed() -> None:
+        locations.refresh()          # a breakdown may have added locations
+        window._poll_project()
+
     panel = ScriptStudioPanel(
-        window.project, paths.models, on_changed=window._poll_project,
+        window.project, paths.models, on_changed=changed,
         export_dir=project_dir,
         # Same takes folder the Characters mode voices lines into.
         audio_dir=project_dir / "dialogue",
         renderer_factory=lambda: window.studio.renderer)
-    window.set_tab_widget("script", panel)
+    locations = LocationsPanel(window.project, export_dir=project_dir,
+                               on_changed=window._poll_project)
+    tabs = QTabWidget()
+    tabs.addTab(panel, "Script && direction")
+    tabs.addTab(locations, "Locations")
+    tabs.currentChanged.connect(lambda _i: locations.refresh())
+    window.set_tab_widget("script", tabs)
+    window.locations = locations
     return panel
