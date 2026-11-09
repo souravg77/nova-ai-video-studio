@@ -78,4 +78,19 @@ assert pin.character_id == "maya" and pin.version == 1
 # Everything survives a save and reload.
 again = Project.model_validate_json(project.model_dump_json())
 assert again.shots[0].pins[0].reference_id == pin.reference_id
+
+# Voice picker: choosing a voice is saved and logged; a missing voice is kept.
+cs2 = CharacterStudioPanel(project, voice_choices=lambda: [
+    ("voice:piper", "en_US-amy-medium.onnx", "en_US-amy-medium.onnx (Piper)")])
+cs2.char_list.setCurrentRow(0)
+assert cs2.voice_combo.count() == 2
+cs2.voice_combo.setCurrentIndex(1)
+maya = project.character("maya")
+assert (maya.voice.engine_id, maya.voice.voice_id) == ("voice:piper", "en_US-amy-medium.onnx")
+assert maya.history[-1].action == "voice_changed" and maya.locked
+cs3 = CharacterStudioPanel(project, voice_choices=lambda: [])
+cs3.char_list.setCurrentRow(0)
+assert "not installed" in cs3.voice_combo.currentText()
+assert "No voices are installed" in cs3.voice_note.text()
+assert project.character("maya").voice.voice_id == "en_US-amy-medium.onnx"
 print("ok")

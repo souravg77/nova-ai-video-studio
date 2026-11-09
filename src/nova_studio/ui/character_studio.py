@@ -16,7 +16,7 @@ from typing import Callable, Optional
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QFileDialog, QGroupBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
+    QComboBox, QFileDialog, QGroupBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
     QListWidget, QMessageBox, QPushButton, QSplitter, QVBoxLayout, QWidget)
 
 from ..performance import characters as ident
@@ -25,9 +25,13 @@ from . import performance_view as view
 
 class CharacterStudioPanel(QWidget):
     def __init__(self, project, on_changed: Optional[Callable[[], None]] = None,
+                 voice_choices: Optional[Callable[[], list[tuple[str, str, str]]]] = None,
                  parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.project = project
+        # (engine id, voice id, label) for each installed voice; see
+        # performance.catalog.voice_choices.
+        self._voice_choices = voice_choices or (lambda: [])
         self._on_changed = on_changed or (lambda: None)
         self._build()
         self.refresh()
@@ -96,6 +100,13 @@ class CharacterStudioPanel(QWidget):
         r3.addWidget(self.lock_btn); r3.addWidget(self.unlock_btn)
         iv.addLayout(r3)
         rv.addWidget(id_box)
+        voice_box = QGroupBox("Voice"); vv = QVBoxLayout(voice_box)
+        self.voice_combo = QComboBox()
+        self.voice_combo.currentIndexChanged.connect(lambda _i: self._voice_picked())
+        vv.addWidget(self.voice_combo)
+        self.voice_note = QLabel(""); self.voice_note.setWordWrap(True)
+        vv.addWidget(self.voice_note)
+        rv.addWidget(voice_box)
         hist_box = QGroupBox("History"); hv = QVBoxLayout(hist_box)
         self.history_list = QListWidget()
         hv.addWidget(self.history_list)
@@ -146,7 +157,40 @@ class CharacterStudioPanel(QWidget):
                     else len(c.candidates) - 1)
         self.cand_list.blockSignals(False)
         self.upload_btn.setEnabled(c is not None)
+        self._show_voice(c)
         self._show_candidate()
+
+    def _show_voice(self, c: Optional[ident.Character]) -> None:
+        self.voice_combo.blockSignals(True)
+        self.voice_combo.clear()
+        choices = self._voice_choices()
+        self.voice_combo.addItem("(no voice)", "|")
+        for engine_id, voice_id, label in choices:
+            self.voice_combo.addItem(label, f"{engine_id}|{voice_id}")
+        cur_engine = (c.voice.engine_id or "") if c else ""
+        cur_voice = c.voice.voice_id if c else ""
+        current = f"{cur_engine}|{cur_voice}"
+        idx = self.voice_combo.findData(current)
+        if idx < 0 and cur_voice:
+            # Keep showing a voice that is no longer installed instead of
+            # silently clearing it.
+            self.voice_combo.addItem(f"{cur_voice} (not installed)", current)
+            idx = self.voice_combo.count() - 1
+        self.voice_combo.setCurrentIndex(max(idx, 0))
+        self.voice_combo.setEnabled(c is not None)
+        self.voice_combo.blockSignals(False)
+        self.voice_note.setText("" if choices else
+                                "No voices are installed. Add one in Voice Studio.")
+
+    def _voice_picked(self) -> None:
+        data = self.voice_combo.currentData()
+        c = self.current_character()
+        if c is None or not data:
+            return
+        engine_id, voice_id = str(data).split("|", 1)
+        if (c.voice.engine_id or "", c.voice.voice_id) == (engine_id, voice_id):
+            return
+        self._apply(ident.set_voice, engine_id or None, voice_id)
 
     def _show_candidate(self) -> None:
         c, cand = self.current_character(), self.current_candidate()

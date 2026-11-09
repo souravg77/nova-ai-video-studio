@@ -102,7 +102,7 @@ class MainWindow(QMainWindow):
         right = QWidget()
         rv = QVBoxLayout(right)
 
-        hw_box = QGroupBox("Hardware & capability")
+        hw_box = QGroupBox("Hardware && capability")
         hv = QVBoxLayout(hw_box)
         self.hw_label = QLabel("Scanning…")
         self.hw_label.setWordWrap(True)
@@ -113,6 +113,9 @@ class MainWindow(QMainWindow):
         bench_btn = QPushButton("Run benchmarks")
         bench_btn.clicked.connect(self._run_benchmarks)
         hw_btn_row.addWidget(rescan_btn); hw_btn_row.addWidget(bench_btn)
+        setup_btn = QPushButton("Setup && diagnostics…")
+        setup_btn.clicked.connect(self.open_setup)
+        hw_btn_row.addWidget(setup_btn)
         hv.addLayout(hw_btn_row)
         rv.addWidget(hw_box)
 
@@ -193,7 +196,7 @@ class MainWindow(QMainWindow):
         rv.addWidget(voice_box)
 
         # ---- Identity & Motion Studio (Phase 4) ----
-        p4_box = QGroupBox("Identity & Motion Studio (talking head)")
+        p4_box = QGroupBox("Identity && Motion Studio (talking head)")
         p4 = QVBoxLayout(p4_box)
         self.p4_status = QLabel("")
         self.p4_status.setWordWrap(True)
@@ -229,7 +232,7 @@ class MainWindow(QMainWindow):
         rvv.addWidget(self.cancel_btn)
         rv.addWidget(render_box)
 
-        jobs_box = QGroupBox("Job status & notices")
+        jobs_box = QGroupBox("Job status && notices")
         jv = QVBoxLayout(jobs_box)
         self.job_log = QTextEdit(); self.job_log.setReadOnly(True)
         jv.addWidget(self.job_log)
@@ -266,6 +269,15 @@ class MainWindow(QMainWindow):
         self.studio.rescan_hardware()
         self._refresh_hardware()
         self._log("Hardware rescanned.")
+
+    def open_setup(self, first_run: bool = False) -> None:
+        """Setup & diagnostics: measured checks plus the few user settings."""
+        from .setup_dialog import SetupDialog
+        dlg = SetupDialog(self.studio, first_run=first_run, parent=self)
+        if dlg.exec() and dlg.restart_needed:
+            QMessageBox.information(
+                self, "Restart NOVA",
+                "The new models folder will be used after NOVA restarts.")
 
     def _run_benchmarks(self) -> None:
         self._log("Running benchmarks (this may take a moment)…")

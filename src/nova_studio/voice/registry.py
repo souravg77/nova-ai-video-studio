@@ -42,5 +42,9 @@ class VoiceRegistry:
     def gallery(self) -> VoiceGallery:
         return VoiceGallery(engines=[e.status() for e in self._engines])
 
+    @property
+    def engines(self) -> list[VoiceEngine]:
+        return list(self._engines)
+
     def engine_for(self, engine_id: str) -> VoiceEngine | None:
         return next((e for e in self._engines if e.engine_id == engine_id), None)

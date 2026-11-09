@@ -52,12 +52,14 @@ class Paths:
     db: Path
 
     @classmethod
-    def create(cls, workspace: Path | None = None) -> "Paths":
+    def create(cls, workspace: Path | None = None,
+               models: Path | str | None = None) -> "Paths":
         ws = (workspace or _resolve_workspace()).resolve()
         p = cls(
             workspace=ws,
             projects=ws / "projects",
-            models=ws / "models",
+            # Model weights are large; the user may keep them on another drive.
+            models=Path(models).expanduser().resolve() if models else ws / "models",
             cache=ws / "cache",
             logs=ws / "logs",
             benchmarks=ws / "benchmarks",
@@ -89,4 +91,9 @@ class AppConfig:
 
 
 def default_config() -> AppConfig:
-    return AppConfig().ensure()
+    """Config for the running app, honouring the user's saved settings."""
+    from .settings import load_settings
+
+    ws = _resolve_workspace()
+    settings = load_settings(ws)
+    return AppConfig(paths=Paths.create(ws, models=settings.models_dir)).ensure()

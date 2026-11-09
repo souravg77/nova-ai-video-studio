@@ -118,3 +118,23 @@ def test_failed_lookup_is_not_cached(monkeypatch, real_tools):
 def test_frozen_app_does_not_search_outside_install_dir(monkeypatch):
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     assert probe._source_tree_dirs() == []
+
+
+def test_app_starts_without_ffmpeg_and_render_reports_it(tmp_path, monkeypatch):
+    """No FFmpeg must not stop NOVA starting (Setup & diagnostics explains it)."""
+    from nova_studio import config
+    from nova_studio.core.studio import Studio
+    from nova_studio.media.renderer import Renderer
+
+    _isolate(monkeypatch)
+    r = Renderer()
+    with pytest.raises(FFmpegNotFound):
+        _ = r.ffmpeg
+    assert Renderer(ffmpeg="C:/custom/ffmpeg.exe").ffmpeg == "C:/custom/ffmpeg.exe"
+
+    cfg = config.AppConfig(paths=config.Paths.create(tmp_path / "ws")).ensure()
+    studio = Studio(cfg)
+    try:
+        assert "ffmpeg" not in studio.report.backends_available
+    finally:
+        studio.shutdown()
