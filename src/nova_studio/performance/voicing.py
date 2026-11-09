@@ -12,8 +12,9 @@ Every spoken line is a character performance, so:
   file behind;
 * one line can be re-voiced without touching any other line's audio, and a
   failed retake keeps the previous good take (in the file and the manifest);
-* a pace can be applied per line (Piper's length_scale) through ``pace_for``.
-  Piper has no emotion control, so emotion is never claimed here.
+* a line's approved direction (``direction_for``) sets its pace through
+  Piper's length_scale. Piper has no emotion or intensity control, so those
+  are reported on the take as not applied, never claimed.
 
 Takes are returned to the caller, and ``write_manifest`` records them next to
 the audio, so the project file format does not change here.
@@ -31,6 +32,9 @@ from .planner import DialogueLine
 
 PIPER = "voice:piper"
 
+# Piper length_scale per approved pace: >1 is slower, <1 is faster.
+PACE_SCALE = {"slow": 1.2, "normal": None, "fast": 0.85}
+
 
 @dataclass
 class LineTake:
@@ -44,6 +48,8 @@ class LineTake:
     engine_id: str = ""
     voice_id: str = ""
     length_scale: Optional[float] = None
+    # What of the approved direction was not applied, e.g. emotion.
+    direction_note: str = ""
 
 
 def _safe(name: str) -> str:
@@ -57,13 +63,39 @@ def line_audio_path(out_dir: Path, line: DialogueLine) -> Path:
 class DialogueVoicer:
     def __init__(self, voices_dir: Path,
                  tts_factory: Callable[[str], TTSAdapter] = lambda p: TTSAdapter(voice_path=p),
-                 pace_for: Optional[Callable[[DialogueLine], Optional[float]]] = None
+                 pace_for: Optional[Callable[[DialogueLine], Optional[float]]] = None,
+                 direction_for: Optional[Callable[[DialogueLine], object]] = None
                  ) -> None:
         self.voices_dir = Path(voices_dir)
         self._tts = tts_factory
         # Returns Piper's length_scale for a line (>1 slower, <1 faster), or
         # None for the voice's own pace.
-        self._pace_for = pace_for or (lambda _line: None)
+        self._pace_for = pace_for
+        # Returns the line's approved direction (emotion, intensity, pace) or
+        # None; see director.direction.approved_direction.
+        self._direction_for = direction_for or (lambda _line: None)
+
+    def scale_for(self, line: DialogueLine) -> Optional[float]:
+        """The length_scale this line is voiced with now."""
+        if self._pace_for is not None:
+            return self._pace_for(line)
+        d = self._direction_for(line)
+        return PACE_SCALE.get(getattr(d, "pace", None) or "normal")
+
+    def direction_note(self, line: DialogueLine) -> str:
+        d = self._direction_for(line)
+        if d is None:
+            return ""
+        skipped = []
+        emotion = getattr(d, "emotion", None)
+        if emotion and emotion != "neutral":
+            skipped.append(f"emotion '{emotion}'")
+        if getattr(d, "intensity", None) and emotion and emotion != "neutral":
+            skipped.append(f"intensity '{d.intensity}'")
+        if not skipped:
+            return ""
+        return (f"Piper can't perform {' or '.join(skipped)}; only the pace "
+                f"of the approved direction was applied.")
 
     def check_line(self, line: DialogueLine, characters) -> Optional[str]:
         """Why this line can't be voiced, or None if it can be tried."""
@@ -100,7 +132,8 @@ class DialogueVoicer:
         tmp = wav.with_suffix(".tmp.wav")
         tmp.unlink(missing_ok=True)
         params = {"text": line.text, "out_path": str(tmp)}
-        scale = self._pace_for(line)
+        scale = self.scale_for(line)
+        take.direction_note = self.direction_note(line)
         if scale is not None:
             params["length_scale"] = scale
             take.length_scale = scale
