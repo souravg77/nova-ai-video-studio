@@ -28,10 +28,14 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.capability import Profile
+from ..core.history import ProjectHistory
 from ..core.setup_check import module_available
 from ..settings import load_settings, save_settings
 from . import workspace_logic as wl
 from .main_window import MainWindow
+
+
+AUTOSAVE_SECONDS = 30   # autosave when there are unsaved changes
 
 
 class _JobSignal(QObject):
@@ -91,6 +95,11 @@ class WorkspaceWindow(QMainWindow):
         studio.queue.add_listener(lambda j: self._jobs.updated.emit(j))
         for job in reversed(studio.store.list_jobs(self.project.id)):
             self._upsert_job(job)
+
+        # Project-wide undo/redo + autosave (snapshots on the 1 s poll).
+        self.history = ProjectHistory(self.project)
+        self.history.mark_saved()          # as opened from disk
+        self._ticks_since_autosave = 0
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._poll_project)
@@ -161,10 +170,22 @@ class WorkspaceWindow(QMainWindow):
         self.save_action.triggered.connect(self.save_project)
         setup_action = QAction("Setup && diagnostics…", self)
         setup_action.triggered.connect(self._open_setup)
+        # Window-level shortcuts: a focused text box still gets Ctrl+Z first
+        # (its own typing undo); elsewhere they undo project changes.
+        self.undo_action = QAction("Undo", self)
+        self.undo_action.setShortcut(QKeySequence.Undo)
+        self.undo_action.triggered.connect(self.undo)
+        self.redo_action = QAction("Redo", self)
+        self.redo_action.setShortcut(QKeySequence.Redo)
+        self.redo_action.triggered.connect(self.redo)
+        self.undo_action.setEnabled(False)
+        self.redo_action.setEnabled(False)
 
         tb.addWidget(self.project_label)
         tb.addAction(self.save_action)
         tb.addWidget(self.save_label)
+        tb.addAction(self.undo_action)
+        tb.addAction(self.redo_action)
         tb.addSeparator()
         tb.addWidget(self.profile_label)
         tb.addSeparator()
@@ -182,10 +203,54 @@ class WorkspaceWindow(QMainWindow):
             settings, module_available("nova_studio.adapters.gemini_omni")))
         self.setWindowTitle(wl.title_for(self.project.name))
 
-    def save_project(self) -> None:
+    def save_project(self, auto: bool = False) -> None:
         self.studio.save_project(self.project)
+        if hasattr(self, "history"):
+            self.history.mark_saved()
+        self._ticks_since_autosave = 0
         self._last_saved = datetime.now().strftime("%H:%M:%S")
-        self.save_label.setText(f"Saved {self._last_saved}")
+        self.save_label.setText(f"{'Autosaved' if auto else 'Saved'} {self._last_saved}")
+
+    # ---- undo / redo / autosave ---------------------------------------------
+    def undo(self) -> bool:
+        done = self.history.undo()
+        if done:
+            self._after_history_move("Undone")
+        return done
+
+    def redo(self) -> bool:
+        done = self.history.redo()
+        if done:
+            self._after_history_move("Redone")
+        return done
+
+    def _after_history_move(self, what: str) -> None:
+        """Every panel shows the restored project (same object, new content)."""
+        if hasattr(self.editor, "_show_project"):
+            self.editor._show_project()
+        script = getattr(self, "script", None)
+        if script is not None:
+            if script.editor.toPlainText() != self.project.director.script_text:
+                script.editor.setPlainText(self.project.director.script_text)
+            script.refresh()
+        for panel in (getattr(self, "locations", None), getattr(self, "performance", None)):
+            if panel is not None and hasattr(panel, "refresh"):
+                panel.refresh()
+        self._lib_sig = None
+        self._poll_project()
+        self.save_label.setText(f"{what} (not saved yet)")
+
+    def _update_history(self) -> None:
+        if not hasattr(self, "history"):
+            return
+        self.history.record()
+        self.undo_action.setEnabled(self.history.can_undo)
+        self.redo_action.setEnabled(self.history.can_redo)
+        self._ticks_since_autosave += 1
+        if self._ticks_since_autosave >= AUTOSAVE_SECONDS:
+            self._ticks_since_autosave = 0
+            if self.history.dirty:
+                self.save_project(auto=True)
 
     def _open_setup(self) -> None:
         self.editor.open_setup()
@@ -223,6 +288,7 @@ class WorkspaceWindow(QMainWindow):
         return dock
 
     def _poll_project(self) -> None:
+        self._update_history()
         sig = wl.library_signature(self.project)
         if sig == self._lib_sig:
             return
