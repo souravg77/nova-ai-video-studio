@@ -47,6 +47,8 @@ hiddenimports += [
     "nova_studio.director.parser",
     "nova_studio.director.breakdown",
     "nova_studio.director.direction",
+    "nova_studio.sheets.views",
+    "nova_studio.sheets.compose",
     "nova_studio.core.setup_check",
     "nova_studio.settings",
     "nova_studio.core.studio",
