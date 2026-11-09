@@ -5,7 +5,8 @@
       * exist,
       * are real static builds, not package-manager shims (a Chocolatey shim
         is ~0.4 MB and only forwards to a path on the build machine), and
-      * actually run and print a "<tool> version ..." banner.
+      * actually run and print a "<tool> version ..." banner,
+    and the folder holds the build's LICENSE.txt (installer.iss requires it).
 
     Usage:
       powershell -ExecutionPolicy Bypass -File scripts\verify_ffmpeg.ps1 -Dir packaging\ffmpeg
@@ -46,8 +47,11 @@ foreach ($tool in @("ffmpeg", "ffprobe")) {
     Write-Host "OK  $tool ($sizeMB MB): $out"
 }
 
-if (-not (Get-ChildItem -Path $Dir -Filter "LICENSE*" -ErrorAction SilentlyContinue)) {
-    Write-Host "::warning::No FFmpeg LICENSE file in $Dir; the installer must ship the build's licence."
+if (-not (Test-Path (Join-Path $Dir "LICENSE.txt"))) {
+    # installer.iss requires ffmpeg\LICENSE.txt; fail here with a clear message
+    # rather than later inside Inno Setup.
+    Write-Host "::error::No LICENSE.txt in $Dir; the installer must ship the build's licence."
+    $failed = $true
 }
 
 if ($failed) { exit 1 }
