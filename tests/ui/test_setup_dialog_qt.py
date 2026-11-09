@@ -41,6 +41,7 @@ SCRIPT = textwrap.dedent('''
     out["n_items"] = len(dlg.items)
     out["keys"] = [i.key for i in dlg.items]
     out["gemini_widget_enabled"] = dlg.gemini_check.isEnabled()
+    out["gemini_checked"] = dlg.gemini_check.isChecked()
     out["preview_widget_enabled"] = dlg.preview_check.isEnabled()
     out["default_models"] = dlg.collect_settings().models_dir
     out["min_width"] = dlg.minimumSizeHint().width()
@@ -79,8 +80,9 @@ def test_setup_dialog_end_to_end(tmp_path):
     assert out["n_items"] >= 8
     for key in ("hardware", "ffmpeg", "workspace", "models_dir", "offline", "gemini"):
         assert key in out["keys"]
+    # The Gemini adapter ships now: a real switch, off by default.
+    assert out["gemini_widget_enabled"] is True and out["gemini_checked"] is False
     # Engines that are not in this build are shown disabled, never as switches.
-    assert out["gemini_widget_enabled"] is False
     assert out["preview_widget_enabled"] is False
     assert out["default_models"] is None
     # Long unwrappable text must not force the dialog wider than a laptop screen.
