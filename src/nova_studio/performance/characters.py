@@ -174,6 +174,17 @@ def unlock_identity(c: Character, reason: str) -> Character:
         c, "unlocked", f"Unlocked: {reason.strip() or 'no reason given'}")})
 
 
+def set_voice(c: Character, engine_id: Optional[str], voice_id: str) -> Character:
+    """Assign the character's speaking voice. Allowed while the visual
+    identity is locked (the lock covers the approved design), and logged."""
+    voice = c.voice.model_copy(update={"engine_id": engine_id or None,
+                                       "voice_id": voice_id})
+    note = (f"Voice set to {voice_id} ({engine_id})" if voice_id
+            else "Voice cleared")
+    return c.model_copy(update={"voice": voice,
+                                "history": _logged(c, "voice_changed", note)})
+
+
 class Readiness(BaseModel):
     ok: bool
     reason: str = ""
