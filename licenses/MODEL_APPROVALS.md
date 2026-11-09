@@ -17,6 +17,7 @@ Status values: `unreviewed` · `approved` · `blocked`
 | Inference | OpenVINO | runtime | Runtime notices + redistributables + device reqs | unreviewed | — |
 | Media | FFmpeg | render | Exact build flags, GPL/LGPL components, codecs, notices | unreviewed | Include required notices if bundled |
 | Visual workflows | ComfyUI | image | App license **plus every node and model** | unreviewed | — |
+| Depth (2.5D camera moves) | Depth Anything V2 Small, ONNX (onnx-community/depth-anything-v2-small, file onnx/model.onnx, sha256 afb6a5c2…a1df10c) | depth | Apache-2.0 per model card; upstream depth-anything/Depth-Anything-V2-Small is Apache-2.0 (NOTE: the Base/Large variants are CC-BY-NC-4.0 and must not be used) | approved (licence) | Installed 2026-11-09 to models/depth with the user's OK; model card kept beside the weights as README.md. Runtime: onnxruntime (MIT). |
 | Face animation | SadTalker / Wav2Lip | face | Code + weights + deps + intended commercial use | **blocked** | Do not ship until fully cleared |
 | Voice cloning | XTTS-v2 (Coqui) | voice-clone | Published license is **non-commercial** | **blocked for commercial** | Personal/internal cloning only with a verified consent record; never commercial |
 | Talking-head | SadTalker | face/motion | Code + weights + deps + intended use | **blocked** | Needs confirmed NVIDIA CUDA + ≥6 GB VRAM; not cleared for commercial; requires likeness+voice consent |

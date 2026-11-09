@@ -22,7 +22,8 @@ from datetime import datetime, timezone
 from ..performance.characters import create_character
 from ..performance.planner import DialogueLine, Shot
 from .direction import apply_script_directions
-from .model import DirectorData, LineDirection, SceneInfo, ShotKind, ShotNote
+from .model import (DirectorData, LineDirection, LocationRef, SceneInfo,
+                    ShotKind, ShotNote)
 from .parser import Element, ElementKind, ParsedScript
 
 WORDS_PER_SECOND = 2.5          # ~150 words per minute, natural speech
@@ -46,6 +47,7 @@ class BreakdownSummary:
     shots: int = 0
     new_characters: list[str] = field(default_factory=list)
     reused_characters: list[str] = field(default_factory=list)
+    new_locations: list[str] = field(default_factory=list)
     running_time_s: float = 0.0
     warnings: list[str] = field(default_factory=list)
 
@@ -178,6 +180,12 @@ def apply_breakdown(project, parsed: ParsedScript, script_text: str,
     director.script_format = parsed.format
     director.script_title = parsed.title
     director.scenes = scenes
+    # One location per distinct place in the headings; existing locations
+    # (and their approved views) are reused by name, never replaced.
+    for sc in scenes:
+        if sc.location and director.location_named(sc.location) is None:
+            director.locations.append(LocationRef(id=_id("loc"), name=sc.location))
+            summary.new_locations.append(sc.location)
     director.lines = lines
     director.shot_notes = notes
     director.breakdown_at = datetime.now(timezone.utc).isoformat()

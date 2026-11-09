@@ -173,6 +173,7 @@ def run_setup_checks(cfg: config.AppConfig, report, capability,
     items += check_storage(cfg.paths)
     items += check_local_models(cfg.paths.models)
     items += check_network_policy(cfg, settings)
+    items.append(check_local_video(cfg.paths.models, settings))
     return items
 
 
@@ -182,3 +183,29 @@ def overall_status(items: list[CheckItem]) -> Status:
         if s in statuses:
             return s
     return Status.OK
+
+
+def local_preview_unavailable(models_dir: Path) -> str:
+    """Why the local LTX-Video preview can't be offered, or '' if it can."""
+    if not module_available("nova_studio.adapters.ltx_local"):
+        return "not included in this build"
+    from ..adapters.ltx_local import find_weights, runtime_available
+    if not runtime_available():
+        return "OpenVINO GenAI runtime not installed"
+    if find_weights(models_dir) is None:
+        return "no LTX-Video weights in models\video"
+    return ""
+
+
+def check_local_video(models_dir: Path, settings: AppSettings) -> CheckItem:
+    title = "Local video preview (LTX-Video, CPU)"
+    reason = local_preview_unavailable(models_dir)
+    if reason:
+        return CheckItem("local_video", title, Status.INFO, f"Not available: {reason}.")
+    if not settings.local_video.experimental_preview_enabled:
+        return CheckItem("local_video", title, Status.INFO,
+                         "Installed but switched off. Personal, non-commercial use only "
+                         "(RAIL-M licence).")
+    return CheckItem("local_video", title, Status.OK,
+                     "On. About 1 s of 512x288 video per minute on this PC; no sound. "
+                     "Personal, non-commercial use only (RAIL-M licence).")

@@ -13,7 +13,7 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QFileDialog, QHBoxLayout, QHeaderView, QLabel,
+    QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QHeaderView, QLabel,
     QMessageBox, QPlainTextEdit, QPushButton, QSplitter, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
@@ -154,6 +154,13 @@ class ScriptStudioPanel(QWidget):
         for b in (self.suggest_btn, self.cancel_btn, self.approve_btn):
             btns.addWidget(b)
         btns.addStretch(1)
+        self.moves_check = QCheckBox("2.5D camera moves")
+        self.moves_check.setChecked(True)
+        self.moves_check.setToolTip(
+            "Give still frames a gentle push-in or sideways move with parallax, "
+            "rendered on this PC. Uses a depth model if one is installed, otherwise "
+            "an approximate depth (and the report says which).")
+        btns.addWidget(self.moves_check)
         btns.addWidget(self.animatic_btn)
         btns.addWidget(self.plan_btn)
         rv.addLayout(btns)
@@ -336,13 +343,17 @@ class ScriptStudioPanel(QWidget):
     # ---- animatic ----------------------------------------------------------------
     def export_animatic(self) -> None:
         from ..director.animatic import build_animatic
+        from ..media.parallax import depth_source
         from ..storage.asset_registry import safe_filename
 
         out = self.export_dir / f"{safe_filename(self.project.name, 'film')}_animatic.mp4"
         renderer = self.renderer_factory()
         self._export_thread = QThread(self)
+        moves = self.moves_check.isChecked()
+        depth = depth_source(self.models_dir) if moves else None
         self._export_worker = _ExportWorker(lambda: build_animatic(
-            self.project, renderer, self.audio_dir, out))
+            self.project, renderer, self.audio_dir, out,
+            camera_moves=moves, depth=depth))
         self._export_worker.moveToThread(self._export_thread)
         self._export_thread.started.connect(self._export_worker.run)
         self._export_worker.finished.connect(self._exported)
@@ -368,11 +379,25 @@ class ScriptStudioPanel(QWidget):
 def mount_script(window) -> ScriptStudioPanel:
     paths = window.studio.config.paths
     project_dir = paths.projects / window.project.id
+    from PySide6.QtWidgets import QTabWidget
+    from .locations_panel import LocationsPanel
+
+    def changed() -> None:
+        locations.refresh()          # a breakdown may have added locations
+        window._poll_project()
+
     panel = ScriptStudioPanel(
-        window.project, paths.models, on_changed=window._poll_project,
+        window.project, paths.models, on_changed=changed,
         export_dir=project_dir,
         # Same takes folder the Characters mode voices lines into.
         audio_dir=project_dir / "dialogue",
         renderer_factory=lambda: window.studio.renderer)
-    window.set_tab_widget("script", panel)
+    locations = LocationsPanel(window.project, export_dir=project_dir,
+                               on_changed=window._poll_project)
+    tabs = QTabWidget()
+    tabs.addTab(panel, "Script && direction")
+    tabs.addTab(locations, "Locations")
+    tabs.currentChanged.connect(lambda _i: locations.refresh())
+    window.set_tab_widget("script", tabs)
+    window.locations = locations
     return panel

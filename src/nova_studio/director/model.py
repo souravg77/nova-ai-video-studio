@@ -59,6 +59,22 @@ class ShotNote(BaseModel):
     description: str = ""
 
 
+class LocationRef(BaseModel):
+    """A place the script uses, with its reference views (roadmap 7a).
+
+    Created unapproved by the breakdown. While approved, its views are locked;
+    unapproving to change them starts the next version.
+    """
+
+    id: str
+    name: str                       # as written in the scene heading
+    description: str = ""
+    views: dict[str, str] = Field(default_factory=dict)   # slot -> image path
+    approved: bool = False
+    version: int = 0                # number of the current/last approval
+    approved_at: Optional[str] = None
+
+
 class DirectorData(BaseModel):
     script_text: str = ""
     script_format: str = ""   # "fountain", "plain" or "mixed"
@@ -66,6 +82,7 @@ class DirectorData(BaseModel):
     scenes: list[SceneInfo] = Field(default_factory=list)
     lines: list[LineDirection] = Field(default_factory=list)
     shot_notes: list[ShotNote] = Field(default_factory=list)
+    locations: list[LocationRef] = Field(default_factory=list)
     breakdown_at: Optional[str] = None
     # Set only by an explicit user approval of the production plan; while set,
     # a new breakdown is refused so approved work is never silently replaced.
@@ -76,3 +93,11 @@ class DirectorData(BaseModel):
 
     def shot_note(self, shot_id: str) -> Optional[ShotNote]:
         return next((n for n in self.shot_notes if n.shot_id == shot_id), None)
+
+    def location_named(self, name: str) -> Optional[LocationRef]:
+        key = name.strip().lower()
+        return next((l for l in self.locations if l.name.strip().lower() == key), None)
+
+    def location_for_scene(self, scene_index: int) -> Optional[LocationRef]:
+        scene = next((s for s in self.scenes if s.index == scene_index), None)
+        return self.location_named(scene.location) if scene and scene.location else None
