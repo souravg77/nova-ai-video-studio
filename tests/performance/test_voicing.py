@@ -124,3 +124,27 @@ def test_pace_is_passed_to_the_engine_and_recorded(setup):
     assert take.ok and take.length_scale == 1.25 and seen == [1.25]
     assert DialogueVoicer(voices, PacedTTS).voice_line(lines[1], chars, out).length_scale is None
     assert seen[-1] is None
+
+
+def test_approved_direction_sets_pace_and_says_emotion_is_not_applied(setup):
+    from types import SimpleNamespace as D
+    voices, chars, lines, out = setup
+    seen = []
+
+    class PacedTTS(FakeTTS):
+        def run(self, params):
+            seen.append(params.get("length_scale"))
+            return super().run(params)
+
+    angry_slow = D(emotion="anger", intensity="strong", pace="slow")
+    v = DialogueVoicer(voices, PacedTTS, direction_for=lambda line: angry_slow)
+    take = v.voice_line(lines[1], chars, out)
+    assert take.ok and seen == [1.2] and take.length_scale == 1.2
+    assert "can't perform emotion 'anger'" in take.direction_note
+    # No approved direction: the voice's own pace, nothing claimed.
+    plain = DialogueVoicer(voices, PacedTTS, direction_for=lambda line: None)
+    take = plain.voice_line(lines[1], chars, out)
+    assert seen[-1] is None and take.direction_note == ""
+    calm = DialogueVoicer(voices, PacedTTS,
+                          direction_for=lambda line: D(emotion="neutral", intensity=None, pace="fast"))
+    assert calm.voice_line(lines[1], chars, out).length_scale == 0.85

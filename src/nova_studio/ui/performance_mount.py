@@ -65,12 +65,16 @@ class PerformanceTab(QTabWidget):
 
 def mount_performance(window) -> PerformanceTab:
     from ..core.model_resolver import TTS_SUBDIR
+    from ..director.direction import approved_direction
     from ..performance.voicing import DialogueVoicer
     paths = window.studio.config.paths
     tab = PerformanceTab(
         window.project, lambda: default_engines(window.studio),
         on_changed=lambda: (window.save_project(), window._poll_project()),
-        voicer=DialogueVoicer(paths.models / TTS_SUBDIR),
+        voicer=DialogueVoicer(
+            paths.models / TTS_SUBDIR,
+            # Only directions the user approved; suggestions never reach audio.
+            direction_for=lambda line: approved_direction(window.project, line.id)),
         audio_dir=paths.projects / window.project.id / "dialogue",
         media_dir=paths.projects / window.project.id / "characters")
     window.set_tab_widget("characters", tab)

@@ -70,3 +70,13 @@ def test_no_takes_and_no_dialogue(scene, tmp_path):
     assert all(x.status == tm.NOT_VOICED for x in t.lines)
     silent = tm.shot_timing(Shot(id="s", duration_s=5.0), lines, chars, {})
     assert silent.needed_s is None and "No dialogue" in tm.timing_text(silent)
+
+
+def test_changed_approved_pace_makes_the_take_out_of_date(scene):
+    chars, lines, shot, manifest = scene
+    manifest["a"]["length_scale"] = 1.2
+    same = tm.shot_timing(shot, lines, chars, manifest,
+                          scale_for=lambda line: 1.2 if line.id == "a" else None)
+    assert same.complete
+    changed = tm.shot_timing(shot, lines, chars, manifest, scale_for=lambda line: None)
+    assert changed.lines[0].status == tm.STALE and "pace" in changed.lines[0].reason

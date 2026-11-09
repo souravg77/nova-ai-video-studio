@@ -144,7 +144,8 @@ class ShotPlanPanel(QWidget):
     def timing_for(self, shot: Shot) -> tm.ShotTiming:
         return tm.shot_timing(shot, self.project.dialogue,
                               self.project.characters,
-                              tm.read_manifest(self.audio_dir))
+                              tm.read_manifest(self.audio_dir),
+                              getattr(self.voicer, "scale_for", None))
 
     def current_line_id(self) -> Optional[str]:
         shot = self.current_shot()
@@ -321,6 +322,7 @@ class ShotPlanPanel(QWidget):
         done = [t for t in takes if t.ok]
         lines = [f"Voiced {len(done)} of {len(takes)} line(s)."]
         lines += [f"Not voiced: {t.message}" for t in takes if not t.ok]
+        lines += [t.direction_note for t in takes if t.ok and t.direction_note]
         self.voice_label.setText("\n".join(lines))
         self._show_shot()
         if 0 <= keep_line < self.line_list.count():
