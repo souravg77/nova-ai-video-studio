@@ -40,6 +40,9 @@ hiddenimports += [
     "nova_studio.app",
     "nova_studio.ui.main_window",
     "nova_studio.ui.voice_panel",
+    "nova_studio.ui.setup_dialog",
+    "nova_studio.core.setup_check",
+    "nova_studio.settings",
     "nova_studio.core.studio",
     "nova_studio.phase4.still_video",
     # Imported lazily by phase4 photo intake/prep and the CPU meter.

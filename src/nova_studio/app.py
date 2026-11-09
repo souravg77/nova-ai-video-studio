@@ -26,12 +26,15 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     from .core.studio import Studio
+    from .settings import load_settings
     from .ui.main_window import MainWindow
 
     app = QApplication(argv if argv is not None else sys.argv)
     studio = Studio()
     window = MainWindow(studio)
     window.show()
+    if not load_settings(studio.config.paths.workspace).first_run_complete:
+        window.open_setup(first_run=True)
     return app.exec()
 
 
