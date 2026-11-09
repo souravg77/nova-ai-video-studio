@@ -37,6 +37,7 @@ class Version:
     width: Optional[int] = None
     height: Optional[int] = None
     inputs: list[str] = field(default_factory=list)   # image paths sent
+    parent_id: str = ""            # the version this one extends
 
     @property
     def usable(self) -> bool:

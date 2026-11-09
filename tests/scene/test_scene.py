@@ -85,3 +85,13 @@ def test_export_keeps_clip_sound_and_fills_gaps_with_silence(setup):
     assert abs(info.duration_s - 6.0) < 0.3          # 2.0 + 2.0 + 2.0 (card)
     assert r.gaps == ["s3"] and "s3" in r.message
     assert not list(tmp.glob("*.part.mp4"))
+
+
+@pytest.mark.ffmpeg
+def test_export_trusts_the_file_not_the_record_for_sound(setup):
+    p, vs, scene, tmp = setup
+    silent = clip(tmp / "s.mp4", 2, audio=False)
+    v = add(vs, "s1", silent, 2.0, audio=True)     # record wrongly says sound
+    vs.choose("s1", v.id)
+    r = export_scene(sq.resolve(p, vs, scene)[:1], tmp / "o.mp4", width=320, height=180)
+    assert r.ok, r.message

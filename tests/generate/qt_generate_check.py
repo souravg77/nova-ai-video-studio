@@ -194,4 +194,25 @@ gp.out_spin.setValue(1)
 assert gp.generate(); gp.wait()
 sent = calls[0]["input"]
 assert sent[0]["type"] == "image" and sent[-1]["text"].startswith("Maya walks in.")
+
+# Extend: only Gemini versions, a continuation prompt, a yes, then measured.
+gp.shot_list.setCurrentRow(0)
+gp.version_list.setCurrentRow(0)                 # newest: the local preview
+assert not gp.extend_btn.isEnabled() and "Gemini" in gp.extend_btn.toolTip()
+vs = gp._versions()
+gp.version_list.setCurrentRow(next(i for i, v in enumerate(vs)
+                                   if v.engine_id == "gemini-omni-flash" and v.ok))
+assert not gp.extend_btn.isEnabled() and "continues" in gp.extend_btn.toolTip()
+gp.extend_prompt.setText("She steps through the door.")
+if have_ffmpeg:
+    assert gp.extend_btn.isEnabled(), gp.extend_btn.toolTip()
+    before = gp.version_list.count()
+    asked.clear(); calls.clear()
+    assert gp.extend(); gp.wait()
+    assert asked and "continue this clip" in asked[-1]
+    assert calls[0]["previous_interaction_id"].startswith("v1_")
+    assert gp.version_list.count() == before + 1
+    gp.version_list.setCurrentRow(0)
+    assert "Extended clip" in gp.version_list.item(0).text()
+    assert "joined" in gp.version_detail.text(), gp.version_detail.text()
 print("ok")

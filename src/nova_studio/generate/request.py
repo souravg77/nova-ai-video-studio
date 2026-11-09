@@ -25,7 +25,8 @@ from ..performance.characters import production_readiness
 MODES = ("text", "frames", "characters")
 MODE_LABELS = {"text": "Text to video",
                "frames": "Start / end frame to video",
-               "characters": "Video from approved characters"}
+               "characters": "Video from approved characters",
+               "extend": "Extended clip"}
 MAX_OUTPUTS = 4
 
 
