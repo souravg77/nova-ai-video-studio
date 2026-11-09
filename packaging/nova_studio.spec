@@ -52,6 +52,7 @@ hiddenimports += [
     "nova_studio.director.animatic",
     "nova_studio.sheets.locations",
     "nova_studio.ui.locations_panel",
+    "nova_studio.media.parallax",
     "nova_studio.core.setup_check",
     "nova_studio.settings",
     "nova_studio.core.studio",

@@ -49,6 +49,9 @@ class AnimaticReport:
     shots: int = 0
     image_frames: int = 0
     location_frames: int = 0
+    camera_moves: int = 0
+    depth_source: str = ""
+    warnings: list[str] = field(default_factory=list)
     title_cards: int = 0
     voiced_lines: int = 0
     unvoiced: list[UnvoicedLine] = field(default_factory=list)
@@ -64,6 +67,10 @@ class AnimaticReport:
                  f"{self.location_frames} an approved location, "
                  f"{self.title_cards} use a title card."]
         parts.append(f"{self.voiced_lines} line(s) voiced.")
+        if self.camera_moves:
+            parts.append(f"{self.camera_moves} shot(s) have a 2.5D camera move "
+                         f"(depth: {self.depth_source}).")
+        parts += self.warnings
         if self.unvoiced:
             parts.append(f"{len(self.unvoiced)} line(s) have no current take and are "
                          f"shown as text only (no audio):")
@@ -117,7 +124,11 @@ def _mix_dialogue(renderer: Renderer, clips: list[tuple[float, str]], total_s: f
 def build_animatic(project, renderer: Renderer, audio_dir: Optional[Path], out_path: str | Path,
                    width: int = 1280, height: int = 720, fps: int = 24,
                    preset: str = "veryfast",
-                   progress: Optional[Callable[[float, str], None]] = None) -> AnimaticReport:
+                   progress: Optional[Callable[[float, str], None]] = None,
+                   camera_moves: bool = False, depth=None) -> AnimaticReport:
+    """Build the animatic. With camera_moves, still frames get a 2.5D move
+    (media.parallax) chosen from the shot's kind; ``depth`` is the depth
+    source to use (default: the approximate one, reported as such)."""
     if not project.shots:
         return AnimaticReport(False, message="There are no shots yet. Break down a script first.")
     manifest = read_manifest(audio_dir)
@@ -126,6 +137,7 @@ def build_animatic(project, renderer: Renderer, audio_dir: Optional[Path], out_p
     rep = AnimaticReport(ok=False, shots=len(project.shots))
 
     scenes: list[SceneSpec] = []
+    moves: list[Optional[tuple[str, float]]] = []     # per scene: (move, strength)
     cues: list[SubtitleCue] = []
     clips: list[tuple[float, str]] = []
     t0 = 0.0
@@ -154,8 +166,10 @@ def build_animatic(project, renderer: Renderer, audio_dir: Optional[Path], out_p
         caption = _short(" / ".join(spoken) if spoken else label)
         if frame:
             scenes.append(SceneSpec("image", frame, dur, caption=caption))
+            moves.append(_move_for(note, len(moves)))
         else:
             rep.title_cards += 1
+            moves.append(None)
             scenes.append(SceneSpec("color", None, dur, caption=caption, color=SLATE_COLOR))
         rep.captions.append(caption)
 
@@ -180,6 +194,9 @@ def build_animatic(project, renderer: Renderer, audio_dir: Optional[Path], out_p
 
     with tempfile.TemporaryDirectory(prefix="nova_animatic_") as td:
         tmp = Path(td)
+        if camera_moves:
+            scenes = _apply_moves(scenes, moves, renderer, depth, tmp, width, height,
+                                  fps, preset, rep, progress)
         narration = None
         try:
             if clips:
@@ -200,3 +217,37 @@ def build_animatic(project, renderer: Renderer, audio_dir: Optional[Path], out_p
     rep.duration_s = round(result.duration_s, 2)
     rep.message = result.message
     return rep
+
+
+def _move_for(note, n: int) -> tuple[str, float]:
+    """A calm default camera move for a still frame, from the shot's kind."""
+    kind = getattr(getattr(note, "kind", None), "value", "")
+    if kind == "establishing":
+        return "push_in", 0.12
+    if kind == "action":
+        return ("truck_left" if n % 2 == 0 else "truck_right"), 0.10
+    return "push_in", 0.06                       # dialogue: barely moving
+
+
+def _apply_moves(scenes, moves, renderer, depth, tmp: Path, width, height, fps, preset,
+                 rep: "AnimaticReport", progress) -> list:
+    from ..media.parallax import ApproximateDepth, render_move
+    depth = depth or ApproximateDepth()
+    rep.depth_source = depth.name
+    out = []
+    for i, (scene, mv) in enumerate(zip(scenes, moves)):
+        if mv is None or scene.kind != "image":
+            out.append(scene)
+            continue
+        if progress:
+            progress(0.05 + 0.4 * i / max(1, len(scenes)), f"Camera move for shot {i + 1}")
+        move, strength = mv
+        res = render_move(scene.source, tmp / f"move_{i:03d}.mp4", move, scene.duration_s,
+                          renderer.ffmpeg, depth, width, height, fps, strength, preset)
+        if res.ok:
+            out.append(SceneSpec("video", res.path, scene.duration_s, caption=scene.caption))
+            rep.camera_moves += 1
+        else:                                     # keep the still; say why
+            out.append(scene)
+            rep.warnings.append(f"Shot {i + 1}: kept still ({res.message})")
+    return out
