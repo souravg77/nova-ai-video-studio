@@ -215,4 +215,22 @@ if have_ffmpeg:
     gp.version_list.setCurrentRow(0)
     assert "Extended clip" in gp.version_list.item(0).text()
     assert "joined" in gp.version_detail.text(), gp.version_detail.text()
+
+# Edit by prompt: same rules, sends Google's "edit" task, keeps the original.
+vs = gp._versions()
+gp.version_list.setCurrentRow(next(i for i, v in enumerate(vs)
+                                   if v.engine_id == "gemini-omni-flash" and v.ok))
+assert not gp.edit_btn.isEnabled() and "change" in gp.edit_btn.toolTip()
+gp.edit_prompt.setText("Make it night.")
+if have_ffmpeg:
+    assert gp.edit_btn.isEnabled(), gp.edit_btn.toolTip()
+    before = gp.version_list.count()
+    asked.clear(); calls.clear()
+    assert gp.edit(); gp.wait()
+    assert asked and "edit this" in asked[-1]
+    assert calls[0]["generation_config"] == {"video_config": {"task": "edit"}}
+    assert gp.version_list.count() == before + 1
+    gp.version_list.setCurrentRow(0)
+    assert "Edited clip" in gp.version_list.item(0).text()
+    assert "Edited by prompt" in gp.version_detail.text(), gp.version_detail.text()
 print("ok")

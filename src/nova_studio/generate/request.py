@@ -26,7 +26,8 @@ MODES = ("text", "frames", "characters")
 MODE_LABELS = {"text": "Text to video",
                "frames": "Start / end frame to video",
                "characters": "Video from approved characters",
-               "extend": "Extended clip"}
+               "extend": "Extended clip",
+               "edit": "Edited clip"}
 MAX_OUTPUTS = 4
 
 

@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from ..adapters.gemini_omni import RESOLUTIONS
 from ..generate import request as gr
+from ..generate.edit import can_edit, edit_version
 from ..generate.extend import can_extend, extend_version
 from ..generate.frames import save_frame
 from ..generate.runner import run_generation
@@ -179,6 +180,14 @@ class GeneratePanel(QWidget):
         r3.addWidget(self.extend_spin); r3.addWidget(self.extend_btn, 1)
         xv.addLayout(r3)
         vv.addWidget(ext)
+        edb = QGroupBox("Edit this version by prompt"); ev = QHBoxLayout(edb)
+        self.edit_prompt = QLineEdit()
+        self.edit_prompt.setPlaceholderText("What should change? e.g. make it night")
+        self.edit_prompt.textChanged.connect(lambda _t: self._update_version_buttons())
+        self.edit_btn = QPushButton("Edit")
+        self.edit_btn.clicked.connect(self.edit)
+        ev.addWidget(self.edit_prompt, 1); ev.addWidget(self.edit_btn)
+        vv.addWidget(edb)
         self.version_detail = QLabel(""); self.version_detail.setWordWrap(True)
         vv.addWidget(self.version_detail)
         gv.addWidget(vbox)
@@ -355,17 +364,25 @@ class GeneratePanel(QWidget):
         self.open_btn.setEnabled(usable)
         has_next = bool(shot) and self._next_shot(shot) is not None
         self.next_start_btn.setEnabled(usable and has_next)
-        why = can_extend(v)
         omni = next((e for e in self.engines
                      if e.spec().id == (v.engine_id if v else None)), None)
-        if why is None and omni is None:
-            why = "That clip's engine isn't set up here."
-        elif why is None and not omni.status().available:
-            why = f"{omni.spec().name} is unavailable: {omni.status().reason}."
-        elif why is None and not self.extend_prompt.text().strip():
-            why = "Describe how the action continues."
+
+        def blocked(why, text, ask):
+            if why is None and omni is None:
+                return "That clip's engine isn't set up here."
+            if why is None and not omni.status().available:
+                return f"{omni.spec().name} is unavailable: {omni.status().reason}."
+            if why is None and not text.strip():
+                return ask
+            return why
+
+        why = blocked(can_extend(v), self.extend_prompt.text(),
+                      "Describe how the action continues.")
         self.extend_btn.setEnabled(why is None and not self.busy())
         self.extend_btn.setToolTip(why or "")
+        why = blocked(can_edit(v), self.edit_prompt.text(), "Describe what to change.")
+        self.edit_btn.setEnabled(why is None and not self.busy())
+        self.edit_btn.setToolTip(why or "")
         self.next_start_btn.setToolTip("" if has_next else "This is the last shot.")
         if v is not None and v.duration_s:
             self.frame_at.setMaximum(max(v.duration_s - 0.05, 0.0))
@@ -476,6 +493,37 @@ class GeneratePanel(QWidget):
             try:
                 nv = extend_version(engine, v, prompt, secs, self.store,
                                     on_progress=self._set_progress)
+                self._result = ("ok", [nv])
+            except Exception as exc:
+                self._result = ("error", str(exc))
+
+        self._thread = threading.Thread(target=work, daemon=True)
+        self._thread.start()
+        self._update(); self._update_version_buttons()
+        self._timer.start()
+        return True
+
+    def edit(self) -> bool:
+        v = self.current_version()
+        if v is None or not self.edit_btn.isEnabled():
+            return False
+        engine = next(e for e in self.engines if e.spec().id == v.engine_id)
+        secs = v.duration_s or 0.0
+        text = (f"This sends 1 request to Google ({engine.spec().name}, cloud) to "
+                f"edit this {secs:.1f} s clip at {v.resolution or '720p'}: about "
+                f"{secs:.1f} s of video billed to your Gemini API key. "
+                f"Google sets the price; NOVA can't see your bill.")
+        if not self._confirm(text):
+            self.progress_label.setText("Not sent.")
+            return False
+        prompt = self.edit_prompt.text()
+        self._result = None
+        self._progress = "Starting"
+
+        def work():
+            try:
+                nv = edit_version(engine, v, prompt, self.store,
+                                  on_progress=self._set_progress)
                 self._result = ("ok", [nv])
             except Exception as exc:
                 self._result = ("error", str(exc))
