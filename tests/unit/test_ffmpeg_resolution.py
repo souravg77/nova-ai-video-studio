@@ -87,17 +87,19 @@ def test_broken_bundled_copy_falls_through_to_path(tmp_path, monkeypatch, real_t
 
 
 @pytest.mark.ffmpeg
-def test_order_override_then_bundled_then_path(tmp_path, monkeypatch, real_tools):
-    real_ff, real_fp = real_tools["ffmpeg"], real_tools["ffprobe"]
-    bundled = tmp_path / "app"
-    bundled.mkdir()
-    shutil.copy(real_ff, bundled / real_ff.name)
-    shutil.copy(real_fp, bundled / real_fp.name)
-    _isolate(monkeypatch, path_dirs=[real_ff.parent], bundled=[bundled])
+def test_order_override_then_bundled_then_path(monkeypatch, real_tools):
+    # Point every source at the genuine tools' own folder instead of copying
+    # binaries: a copied package-manager shim (e.g. Chocolatey's, as on CI)
+    # stops working, which is the very failure this lookup guards against.
+    real_dir = real_tools["ffmpeg"].parent
 
+    _isolate(monkeypatch, path_dirs=[real_dir])
+    assert check_tool("ffmpeg", refresh=True).source == "PATH"
+
+    _isolate(monkeypatch, path_dirs=[real_dir], bundled=[real_dir])
     assert check_tool("ffmpeg", refresh=True).source == "bundled"
 
-    monkeypatch.setenv("NOVA_FFMPEG_DIR", str(real_ff.parent))
+    monkeypatch.setenv("NOVA_FFMPEG_DIR", str(real_dir))
     chk = check_tool("ffmpeg", refresh=True)
     assert chk.source == "override" and chk.version.startswith("ffmpeg version")
 
