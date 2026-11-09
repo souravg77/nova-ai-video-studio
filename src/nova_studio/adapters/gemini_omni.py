@@ -119,6 +119,9 @@ class OmniTake:
 
 
 class GeminiOmniEngine:
+    resolutions = RESOLUTIONS
+    model = MODEL
+
     def __init__(self, api_key_provider: Callable[[], Optional[str]],
                  cloud_enabled: Callable[[], bool],
                  transport: Transport = urllib_transport,

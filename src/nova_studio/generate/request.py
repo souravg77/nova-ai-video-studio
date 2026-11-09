@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from ..adapters.gemini_omni import CAPABILITIES, ImageInput, OmniRequest
+from ..adapters.gemini_omni import CAPABILITIES as OMNI_CAPS, ImageInput, OmniRequest
 from ..performance.characters import production_readiness
 
 MODES = ("text", "frames", "characters")
@@ -47,7 +47,8 @@ class Prepared:
         return self.request is not None and not self.blockers
 
 
-def prepare(spec: GenerateSpec, project) -> Prepared:
+def prepare(spec: GenerateSpec, project, caps=OMNI_CAPS) -> Prepared:
+    """``caps`` are the selected engine's declared capabilities."""
     blockers, warnings, images = [], [], []
     shot = next((s for s in project.shots if s.id == spec.shot_id), None)
     if shot is None:
@@ -58,7 +59,11 @@ def prepare(spec: GenerateSpec, project) -> Prepared:
         blockers.append("Describe the shot first.")
     if not 1 <= spec.outputs <= MAX_OUTPUTS:
         blockers.append(f"Ask for 1 to {MAX_OUTPUTS} versions at a time.")
-    if spec.mode == "frames":
+    if spec.mode == "frames" and not caps.start_end_frames:
+        blockers.append("This engine can't start from a frame.")
+    elif spec.mode == "characters" and caps.max_reference_images < 1:
+        blockers.append("This engine can't take character references.")
+    elif spec.mode == "frames":
         if not shot.start_frame:
             blockers.append("Set the shot's start frame first.")
         for role, p in (("first_frame", shot.start_frame), ("last_frame", shot.end_frame)):
@@ -90,10 +95,16 @@ def prepare(spec: GenerateSpec, project) -> Prepared:
                 blockers.append(f"{c.name}'s approved image is missing: {p}")
             else:
                 images.append(ImageInput(p, "reference"))
-        if len(images) > CAPABILITIES.max_reference_images:
-            blockers.append(f"Gemini Omni Flash takes at most "
-                            f"{CAPABILITIES.max_reference_images} character "
+        if len(images) > caps.max_reference_images:
+            blockers.append(f"This engine takes at most "
+                            f"{caps.max_reference_images} character "
                             f"references per shot; this shot has {len(images)}.")
+    if spec.duration_s is not None and caps.max_duration_s and not (
+            caps.min_duration_s <= spec.duration_s <= caps.max_duration_s):
+        blockers.append(f"This engine makes {caps.min_duration_s:g}-"
+                        f"{caps.max_duration_s:g} s clips.")
+    if caps.aspect_ratios and spec.aspect_ratio not in caps.aspect_ratios:
+        blockers.append(f"This engine doesn't make {spec.aspect_ratio} video.")
     for img in images:
         if img.path.suffix.lower() not in (".png", ".jpg", ".jpeg"):
             blockers.append(f"{img.path.name}: Gemini accepts PNG or JPEG images only.")
@@ -105,10 +116,14 @@ def prepare(spec: GenerateSpec, project) -> Prepared:
     return Prepared(req, [], warnings, [str(i.path) for i in images])
 
 
-def usage_text(spec: GenerateSpec, engine_name: str = "Gemini Omni Flash") -> str:
+def usage_text(spec: GenerateSpec, engine_name: str = "Gemini Omni Flash",
+               is_cloud: bool = True) -> str:
     """What one press of Generate sends and uses, stated before it is sent."""
-    secs = spec.duration_s or CAPABILITIES.max_duration_s
+    secs = spec.duration_s or OMNI_CAPS.max_duration_s
     n = spec.outputs
+    if not is_cloud:
+        return (f"Runs {n} time{'s' if n != 1 else ''} on this PC with "
+                f"{engine_name}. Nothing is sent over the internet.")
     return (f"This sends {n} request{'s' if n != 1 else ''} to Google "
             f"({engine_name}, cloud), each making one {secs:g} s clip at "
             f"{spec.resolution}: about {n * secs:g} s of video billed to your "

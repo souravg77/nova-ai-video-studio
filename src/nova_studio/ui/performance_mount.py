@@ -28,6 +28,19 @@ def omni_engine(studio):
         cloud_enabled=lambda: load_settings(workspace).cloud.gemini_enabled)
 
 
+def video_engines(studio) -> list:
+    """Engines offered on the Generate screen. A local engine, when one is
+    installed, comes first: local stays the default and the cloud engine is
+    only used when the user picks it (and it is switched on)."""
+    engines = [omni_engine(studio)]
+    try:
+        from ..adapters import ltx_local  # added by the local-preview work
+    except ImportError:
+        return engines
+    local = ltx_local.engine_for_studio(studio)
+    return ([local] if local is not None else []) + engines
+
+
 def default_engines(studio) -> tuple[list, list]:
     """(voice engines, extra planner specs) for this PC and these settings."""
     from ..core.model_resolver import TTS_SUBDIR
@@ -41,7 +54,7 @@ class PerformanceTab(QTabWidget):
     def __init__(self, project, engines: Callable[[], tuple[list, list]],
                  on_changed: Callable[[], None] = lambda: None,
                  voicer=None, audio_dir=None, media_dir=None,
-                 video_engine=None, generations_dir=None,
+                 video_engine=None, generations_dir=None,  # video_engine: list
                  scene_out=None) -> None:
         super().__init__()
         self._engines = engines
@@ -59,7 +72,7 @@ class PerformanceTab(QTabWidget):
         self.generate = None
         if generations_dir is not None:
             from .generate_panel import GeneratePanel
-            self.generate = GeneratePanel(project, engine=video_engine,
+            self.generate = GeneratePanel(project, engines=video_engine,
                                           generations_dir=generations_dir,
                                           on_changed=on_changed)
             self.addTab(self.generate, "Generate")
@@ -101,7 +114,7 @@ def mount_performance(window) -> PerformanceTab:
             direction_for=lambda line: approved_direction(window.project, line.id)),
         audio_dir=paths.projects / window.project.id / "dialogue",
         media_dir=paths.projects / window.project.id / "characters",
-        video_engine=omni_engine(window.studio),
+        video_engine=video_engines(window.studio),
         generations_dir=generations_dir(paths.projects, window.project.id),
         scene_out=lambda: paths.projects / window.project.id / (
             safe_filename(window.project.name or "scene") + "_scene.mp4"))

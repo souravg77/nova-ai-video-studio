@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
     QSpinBox, QSplitter, QVBoxLayout, QWidget)
 
-from ..adapters.gemini_omni import CAPABILITIES, RESOLUTIONS
+from ..adapters.gemini_omni import RESOLUTIONS
 from ..generate import request as gr
 from ..generate.frames import save_frame
 from ..generate.runner import run_generation
@@ -48,10 +48,15 @@ class GeneratePanel(QWidget):
     def __init__(self, project, engine=None, generations_dir: Optional[Path] = None,
                  on_changed: Optional[Callable[[], None]] = None,
                  confirm: Optional[Callable[[str], bool]] = None,
+                 engines: Optional[list] = None,
                  parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.project = project
-        self.engine = engine            # adapters.gemini_omni.GeminiOmniEngine
+        # Video engines with status(), spec() and generate(), such as
+        # adapters.gemini_omni.GeminiOmniEngine. The user picks one; NOVA
+        # never switches engines (local or cloud) on its own.
+        self.engines = list(engines) if engines is not None else (
+            [engine] if engine is not None else [])
         self.store = VersionStore(generations_dir) if generations_dir else None
         self._on_changed = on_changed or (lambda: None)
         self._confirm = confirm or self._ask
@@ -78,6 +83,11 @@ class GeneratePanel(QWidget):
         lv.addWidget(shots, 1)
 
         req = QGroupBox("Request"); rv = QVBoxLayout(req)
+        self.engine_combo = QComboBox()
+        for e in self.engines:
+            self.engine_combo.addItem(e.spec().name)
+        self.engine_combo.currentIndexChanged.connect(lambda _i: self._engine_changed())
+        rv.addWidget(self.engine_combo)
         self.mode_combo = QComboBox()
         for m in gr.MODES:
             self.mode_combo.addItem(gr.MODE_LABELS[m], m)
@@ -101,14 +111,8 @@ class GeneratePanel(QWidget):
             self.frame_btns[key] = (lab, pick, clear)
         opts = QHBoxLayout()
         self.aspect_combo = QComboBox()
-        for a in CAPABILITIES.aspect_ratios:
-            self.aspect_combo.addItem(a, a)
         self.res_combo = QComboBox()
-        for r in RESOLUTIONS:
-            self.res_combo.addItem(r, r)
-        self.res_combo.setCurrentIndex(max(self.res_combo.findData("720p"), 0))
         self.dur_spin = QDoubleSpinBox()
-        self.dur_spin.setRange(CAPABILITIES.min_duration_s, CAPABILITIES.max_duration_s)
         self.dur_spin.setSuffix(" s"); self.dur_spin.setDecimals(1)
         self.out_spin = QSpinBox(); self.out_spin.setRange(1, gr.MAX_OUTPUTS)
         self.out_spin.setSuffix(" version(s)")
@@ -135,6 +139,7 @@ class GeneratePanel(QWidget):
         rv.addWidget(self.progress_label)
         lv.addWidget(req, 2)
         split.addWidget(left)
+        self._fill_engine_options()
 
         right = QWidget(); gv = QVBoxLayout(right)
         vbox = QGroupBox("Versions of this shot"); vv = QVBoxLayout(vbox)
@@ -159,6 +164,41 @@ class GeneratePanel(QWidget):
         vv.addWidget(self.version_detail)
         gv.addWidget(vbox)
         split.addWidget(right)
+
+    # -- engine --------------------------------------------------------------
+    @property
+    def engine(self):
+        i = self.engine_combo.currentIndex()
+        return self.engines[i] if 0 <= i < len(self.engines) else None
+
+    def caps(self):
+        from ..adapters.gemini_omni import CAPABILITIES
+        e = self.engine
+        return e.spec().capabilities if e is not None else CAPABILITIES
+
+    def _fill_engine_options(self) -> None:
+        caps, e = self.caps(), self.engine
+        keep_a, keep_r = self.aspect_combo.currentData(), self.res_combo.currentData()
+        for combo in (self.aspect_combo, self.res_combo):
+            combo.blockSignals(True); combo.clear()
+        for a in caps.aspect_ratios or ("16:9",):
+            self.aspect_combo.addItem(a, a)
+        for r in getattr(e, "resolutions", None) or RESOLUTIONS:
+            self.res_combo.addItem(r, r)
+        for combo, keep, default in ((self.aspect_combo, keep_a, None),
+                                     (self.res_combo, keep_r, "720p")):
+            i = combo.findData(keep)
+            if i < 0:
+                i = combo.findData(default) if default else 0
+            combo.setCurrentIndex(max(i, 0))
+            combo.blockSignals(False)
+        self.dur_spin.blockSignals(True)
+        self.dur_spin.setRange(caps.min_duration_s or 1.0, caps.max_duration_s or 10.0)
+        self.dur_spin.blockSignals(False)
+
+    def _engine_changed(self) -> None:
+        self._fill_engine_options()
+        self._show_shot()
 
     # -- state ---------------------------------------------------------------
     def current_shot(self):
@@ -212,8 +252,8 @@ class GeneratePanel(QWidget):
         self.prompt_edit.blockSignals(False)
         if shot is not None:
             self.dur_spin.blockSignals(True)
-            self.dur_spin.setValue(min(max(shot.duration_s, CAPABILITIES.min_duration_s),
-                                       CAPABILITIES.max_duration_s))
+            self.dur_spin.setValue(min(max(shot.duration_s, self.dur_spin.minimum()),
+                                       self.dur_spin.maximum()))
             self.dur_spin.blockSignals(False)
         self._show_versions()
         self._update()
@@ -247,18 +287,19 @@ class GeneratePanel(QWidget):
             reasons.append("Add a shot in the shot plan first.")
         if self.store is None:
             reasons.append("Generation isn't available in this view.")
-        if self.engine is None:
+        e = self.engine
+        if e is None:
             reasons.append("No video engine is set up.")
         else:
-            st = self.engine.status()
+            st = e.status()
             if not st.available:
-                reasons.append(f"Gemini Omni Flash is unavailable: {st.reason}.")
+                reasons.append(f"{e.spec().name} is unavailable: {st.reason}.")
         warnings = []
         if spec is not None:
-            prep = gr.prepare(spec, self.project)
+            prep = gr.prepare(spec, self.project, self.caps())
             reasons += prep.blockers
             warnings = prep.warnings
-            self.usage_label.setText(gr.usage_text(spec))
+            self.usage_label.setText(self._usage(spec))
         else:
             self.usage_label.setText("")
         self.blocker_label.setText("\n".join(
@@ -266,6 +307,7 @@ class GeneratePanel(QWidget):
             + [f"Warning: {w}" for w in warnings]))
         self.generate_btn.setEnabled(not reasons and not self.busy())
         self.mode_combo.setEnabled(not self.busy())
+        self.engine_combo.setEnabled(not self.busy() and len(self.engines) > 1)
 
     def _update_version_buttons(self) -> None:
         v = self.current_version()
@@ -284,7 +326,9 @@ class GeneratePanel(QWidget):
         else:
             self.version_detail.setText(
                 f"Prompt: {v.prompt}\n{v.message}"
-                + (f"\n{v.width}x{v.height}, {v.model}, SynthID watermark"
+                + (f"\n{v.width}x{v.height}, {v.engine_id}"
+                   + (f" ({v.model})" if v.model else "")
+                   + (", SynthID watermark" if v.engine_id == "gemini-omni-flash" else "")
                    if v.ok and v.width else ""))
 
     # -- actions -------------------------------------------------------------
@@ -329,20 +373,28 @@ class GeneratePanel(QWidget):
             self, "Send to Google?", text + "\n\nSend it?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
 
+    def _usage(self, spec) -> str:
+        e = self.engine
+        if e is None:
+            return ""
+        return gr.usage_text(spec, e.spec().name, self.caps().is_cloud)
+
     def generate(self) -> bool:
         spec = self.spec()
         if spec is None or not self.generate_btn.isEnabled():
             return False
-        if not self._confirm(gr.usage_text(spec)):
+        # Anything that leaves this PC needs a yes every time.
+        if self.caps().is_cloud and not self._confirm(self._usage(spec)):
             self.progress_label.setText("Not sent.")
             return False
+        engine = self.engine
         self._cancel.clear()
         self._result = None
         self._progress = "Starting"
 
         def work():
             try:
-                vs = run_generation(self.engine, spec, self.project, self.store,
+                vs = run_generation(engine, spec, self.project, self.store,
                                     on_progress=self._set_progress, cancel=self._cancel)
                 self._result = ("ok", vs)
             except Exception as exc:          # reported to the user, never hidden

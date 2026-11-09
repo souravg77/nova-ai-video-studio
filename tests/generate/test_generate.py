@@ -148,3 +148,18 @@ def test_save_frame_reads_a_real_frame(tmp_path):
     assert out.is_file() and out.stat().st_size > 0
     with pytest.raises(ValueError):
         save_frame(tmp_path / "missing.mp4", 0, tmp_path / "x.png")
+
+
+def test_engine_capabilities_decide_what_can_be_asked(project):
+    from nova_studio.performance.engines import EngineCapabilities
+    local = EngineCapabilities(video_generation=True, min_duration_s=1.0,
+                               max_duration_s=2.0, aspect_ratios=("16:9",))
+    spec = gr.GenerateSpec("shot-1", "characters", "Maya waves.", duration_s=1.5)
+    assert any("character references" in b for b in gr.prepare(spec, project, local).blockers)
+    frames = gr.GenerateSpec("shot-1", "frames", "Go.", duration_s=1.5)
+    assert any("start from a frame" in b for b in gr.prepare(frames, project, local).blockers)
+    long = gr.GenerateSpec("shot-1", "text", "Go.", duration_s=6)
+    assert any("1-2 s clips" in b for b in gr.prepare(long, project, local).blockers)
+    assert gr.prepare(gr.GenerateSpec("shot-1", "text", "Go.", duration_s=1.5),
+                      project, local).ok
+    assert "Nothing is sent" in gr.usage_text(spec, "Local", is_cloud=False)
