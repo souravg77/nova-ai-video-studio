@@ -95,6 +95,9 @@ class WorkspaceWindow(QMainWindow):
         self._timer.timeout.connect(self._poll_project)
         self._timer.start(1000)
         self._poll_project()
+        # Characters mode: Character Studio + shot plan (Phase 2 panels).
+        from .performance_mount import mount_performance
+        self.performance = mount_performance(self)
         self._restore_layout()
 
     # ---- helpers --------------------------------------------------------

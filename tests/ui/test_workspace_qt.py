@@ -43,7 +43,16 @@ SCRIPT = textwrap.dedent('''
     out["placeholder_text"] = body.text()
     win.show_mode("edit"); app.processEvents()
 
-    # Mount point: a real panel replaces the Characters placeholder.
+    # Characters mode is mounted at start-up with the real panels.
+    perf = tabs.widget(win._tab_index["characters"])
+    out["perf_tabs"] = [perf.tabText(i) for i in range(perf.count())]
+    out["perf_video_engines"] = [perf.shots.engine_combos["video"].itemText(i)
+                                 for i in range(perf.shots.engine_combos["video"].count())]
+    perf.characters.name_edit.setText("Maya"); perf.characters.add_btn.click()
+    win._poll_project(); app.processEvents()
+    out["character_in_project"] = [c.name for c in win.project.characters]
+
+    # Mount point: a real panel replaces a mode's widget.
     panel = QLabel("character panel")
     win.set_tab_widget("characters", panel)
     out["after_mount"] = [text(i) for i in range(tabs.count())]
@@ -108,7 +117,7 @@ def test_workspace_shell_end_to_end(tmp_path):
     out = json.loads(lines[0][len("RESULT "):])
 
     assert out["titles"] == [
-        "Script (not built yet)", "Characters (not built yet)",
+        "Script (not built yet)", "Characters",
         "Storyboard (not built yet)", "Generate (not built yet)", "Edit & render"]
     assert out["current"] == "Edit & render" and out["edit_is_editor"]
     # A literal ampersand, not a keyboard-mnemonic underline.
@@ -123,6 +132,10 @@ def test_workspace_shell_end_to_end(tmp_path):
     assert out["unknown_mode_rejected"]
     assert out["switched"] == "Storyboard (not built yet)"
 
+    assert out["perf_tabs"] == ["Character Studio", "Shot plan"]
+    assert out["perf_video_engines"][0] == "(none)"
+    assert "switched off" in out["perf_video_engines"][1]
+    assert out["character_in_project"] == ["Maya"]
     assert "Scenes" in out["library_top"]
     assert out["inspector"]["Title"] == "Opening"
     assert out["inspector"]["Duration (s)"] == "3"
