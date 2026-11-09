@@ -18,7 +18,7 @@ import sqlite3
 from typing import Callable
 
 # Bump when the Project model changes shape, and add a step below.
-PROJECT_SCHEMA_VERSION = 1
+PROJECT_SCHEMA_VERSION = 2
 # Bump when tables/indexes change, and add a step below.
 DB_SCHEMA_VERSION = 1
 
@@ -35,8 +35,20 @@ def _project_v0_to_v1(data: dict) -> dict:
     return data
 
 
+def _project_v1_to_v2(data: dict) -> dict:
+    # v2 adds character performance data. Older projects start with none and
+    # keep their scenes/assets exactly as they were.
+    data.setdefault("language", "en")
+    data.setdefault("characters", [])
+    data.setdefault("dialogue", [])
+    data.setdefault("shots", [])
+    data.setdefault("engine_selection", {})
+    return data
+
+
 _PROJECT_STEPS: dict[int, Callable[[dict], dict]] = {
     0: _project_v0_to_v1,
+    1: _project_v1_to_v2,
 }
 
 
