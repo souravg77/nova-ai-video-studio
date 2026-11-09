@@ -36,15 +36,14 @@ PATH and at the default install path).
 
 ## What the pieces are
 
-- `nova_studio_dashboard.spec` — **the default**. PyInstaller spec for the
-  NOVA Studio **dashboard** app: the rich web UI (`webapp/static/`) wrapped in a
-  native window via pywebview. Onedir, **windowed (no console)**, bundles Flask +
-  waitress + pywebview + the `nova_studio` engine + `licenses/`, `scripts/`,
-  `docs/`. Entry point is `webapp/desktop.py`, which starts a local Flask server
-  on 127.0.0.1 and opens the dashboard in a native window. `build_exe.ps1` uses
-  this spec.
-- `nova_studio.spec` — the earlier PySide6 desktop UI (kept as an alternative).
-  Onedir, windowed, entry `src/nova_studio/win_launcher.py`.
+- `nova_studio.spec` — **the default**. PyInstaller spec for the PySide6
+  desktop app. Onedir, **windowed (no console)**, entry
+  `src/nova_studio/win_launcher.py`; bundles the `nova_studio` engine, PySide6,
+  Pillow/OpenCV/psutil, the optional `llama_cpp` runtime, and `licenses/`,
+  `scripts/`, `docs/`. `build_exe.ps1` uses this spec.
+- `nova_studio_dashboard.spec` — the alternative web **dashboard** build
+  (`webapp/static/` in a pywebview window, served by a local Flask server).
+  Build it with `build_exe.ps1 -Dashboard`.
 - `installer.iss` — Inno Setup script. x64-only, Windows 10 1809+/11, admin
   install to Program Files, Start-Menu + desktop shortcuts (including a
   "Hardware report" shortcut that runs `NOVA-Studio.exe --hardware`), and an

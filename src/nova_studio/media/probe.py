@@ -46,6 +46,11 @@ def _bundled_dirs() -> list[Path]:
 
 def _source_tree_dirs() -> list[Path]:
     """Developer convenience: packaging/ffmpeg in a source checkout."""
+    if getattr(sys, "frozen", False):
+        # In an installed app this path points outside the install folder
+        # (e.g. the parent of Program Files\NOVA Studio), which NOVA must not
+        # search for executables.
+        return []
     root = Path(__file__).resolve().parents[3]
     return [root / "packaging" / "ffmpeg"]
 
@@ -124,7 +129,12 @@ _cache: dict[str, ToolCheck] = {}
 
 
 def check_tool(name: str, refresh: bool = False) -> ToolCheck:
-    """Find the first candidate that genuinely runs. Results are cached."""
+    """Find the first candidate that genuinely runs.
+
+    Only a successful lookup is cached. A failure (nothing installed yet, or a
+    slow first launch hitting the timeout while antivirus scans the binary) is
+    re-checked on the next call, so installing FFmpeg works without a restart.
+    """
     if not refresh and name in _cache:
         return _cache[name]
     result = ToolCheck(name=name, rejected=[])
@@ -143,7 +153,10 @@ def check_tool(name: str, refresh: bool = False) -> ToolCheck:
             result.path, result.source, result.version = str(path), source, info
             break
         result.rejected.append(f"{path} ({source}): {info}")
-    _cache[name] = result
+    if result.ok:
+        _cache[name] = result
+    else:
+        _cache.pop(name, None)
     return result
 
 

@@ -103,3 +103,18 @@ def test_order_override_then_bundled_then_path(tmp_path, monkeypatch, real_tools
 
     diag = check_ffmpeg(refresh=True)
     assert diag.ok and diag.source == "override"
+
+
+@pytest.mark.ffmpeg
+def test_failed_lookup_is_not_cached(monkeypatch, real_tools):
+    """Installing FFmpeg while NOVA is open must work without a restart."""
+    _isolate(monkeypatch)
+    assert not check_tool("ffmpeg").ok
+    monkeypatch.setenv("PATH", str(real_tools["ffmpeg"].parent))
+    chk = check_tool("ffmpeg")  # no refresh=True: a failure must not stick
+    assert chk.ok and chk.source == "PATH"
+
+
+def test_frozen_app_does_not_search_outside_install_dir(monkeypatch):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    assert probe._source_tree_dirs() == []

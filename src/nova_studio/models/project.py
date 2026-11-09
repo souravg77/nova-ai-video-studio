@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field
+from ..storage.migrations import PROJECT_SCHEMA_VERSION
 
 
 def _uid() -> str:
@@ -55,7 +56,7 @@ class Scene(BaseModel):
 class Project(BaseModel):
     # Manifest schema version (see storage/migrations.py). Old manifests
     # without it are migrated forward on load before validation.
-    schema_version: int = 1
+    schema_version: int = PROJECT_SCHEMA_VERSION
     id: str = Field(default_factory=_uid)
     name: str = "Untitled Project"
     created_at: str = Field(default_factory=_now)
