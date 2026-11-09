@@ -102,8 +102,12 @@ class Project(BaseModel):
     def put_character(self, character: Character) -> Character:
         """Insert or replace a character by id (identity rules live in
         performance.characters; this only stores the result)."""
-        self.characters = [c for c in self.characters if c.id != character.id]
-        self.characters.append(character)
+        for i, c in enumerate(self.characters):
+            if c.id == character.id:
+                self.characters[i] = character
+                break
+        else:
+            self.characters.append(character)
         self.touch()
         return character
 
