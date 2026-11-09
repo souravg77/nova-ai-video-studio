@@ -95,3 +95,32 @@ def test_real_piper_cli_output_is_validated(setup, tmp_path, monkeypatch):
     take = DialogueVoicer(voices).voice_line(lines[1], chars, out)
     assert take.ok, take.message
     assert take.duration_s and take.duration_s > 1.0
+
+
+def test_failed_retake_keeps_the_good_take_in_the_manifest(setup):
+    voices, chars, lines, out = setup
+    good = DialogueVoicer(voices, FakeTTS).voice_line(lines[1], chars, out)
+    write_manifest([good], out)
+    bad = DialogueVoicer(voices, lambda p: FakeTTS(p, ok=False)).voice_line(
+        lines[1], chars, out)
+    write_manifest([bad], out)
+    entry = json.loads((out / "takes.json").read_text())["l1"]
+    assert entry["ok"] and entry["audio_path"] == good.audio_path
+    assert "boom" in entry["last_error"]
+
+
+def test_pace_is_passed_to_the_engine_and_recorded(setup):
+    voices, chars, lines, out = setup
+    seen = []
+
+    class PacedTTS(FakeTTS):
+        def run(self, params):
+            seen.append(params.get("length_scale"))
+            return super().run(params)
+
+    v = DialogueVoicer(voices, PacedTTS,
+                       pace_for=lambda line: 1.25 if line.id == "l1" else None)
+    take = v.voice_line(lines[1], chars, out)
+    assert take.ok and take.length_scale == 1.25 and seen == [1.25]
+    assert DialogueVoicer(voices, PacedTTS).voice_line(lines[1], chars, out).length_scale is None
+    assert seen[-1] is None

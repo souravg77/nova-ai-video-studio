@@ -117,3 +117,23 @@ assert "Voiced 1 of 1" in sp2.voice_label.text()
 assert (audio / "takes.json").exists()
 assert not ShotPlanPanel(project, EngineRegistry([])).voice_btn.isEnabled()
 print("ok")
+
+# Timing from the recorded take, re-voicing one line, and fitting the shot.
+shot = project.shots[0]
+assert "[0.4-1.4 s]" in sp2.line_list.item(0).text(), sp2.line_list.item(0).text()
+assert "need 2.0 s" in sp2.timing_label.text() and "6 s" in sp2.timing_label.text()
+assert sp2.fit_btn.isEnabled() and not sp2.revoice_btn.isEnabled()
+sp2.line_list.setCurrentRow(0)
+assert sp2.revoice_btn.isEnabled()
+sp2.revoice_btn.click()
+assert [t.line_id for t in sp2.last_takes] == [shot.dialogue_line_ids[0]]
+assert sp2.line_list.currentRow() == 0
+sp2.fit_btn.click()
+assert project.shots[0].duration_s == 2.0
+assert not sp2.fit_btn.isEnabled() and "0 s spare" in sp2.timing_label.text()
+# Editing the line's text makes the take out of date; nothing is estimated.
+project.dialogue = [project.dialogue[0].model_copy(update={"text": "Changed."})]
+sp2.refresh()
+assert "(out of date)" in sp2.line_list.item(0).text()
+assert "need a take" in sp2.timing_label.text() and not sp2.fit_btn.isEnabled()
+print("ok")
