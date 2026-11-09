@@ -7,12 +7,14 @@ the dialogue shows up as a blocker here. Nothing is generated from this panel.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Callable, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDoubleSpinBox, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
+    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
+    QPlainTextEdit, QPushButton,
     QSplitter, QVBoxLayout, QWidget)
 
 from ..performance.engines import EngineRegistry, Role
@@ -24,10 +26,16 @@ from . import performance_view as view
 class ShotPlanPanel(QWidget):
     def __init__(self, project, registry: EngineRegistry,
                  on_changed: Optional[Callable[[], None]] = None,
+                 voicer=None, audio_dir: Optional[Path] = None,
                  parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.project = project
         self.registry = registry
+        # performance.voicing.DialogueVoicer; None hides nothing but disables
+        # voicing with a reason.
+        self.voicer = voicer
+        self.audio_dir = audio_dir
+        self.last_takes: list = []
         self._on_changed = on_changed or (lambda: None)
         self._build()
         self.refresh()
@@ -85,19 +93,28 @@ class ShotPlanPanel(QWidget):
         r2.addWidget(self.speaker_combo); r2.addWidget(self.line_edit, 1)
         r2.addWidget(self.add_line_btn)
         dv.addLayout(r2)
-        rv.addWidget(line_box)
+        rv.addWidget(line_box, 1)
 
         plan_box = QGroupBox("Plan"); pv = QVBoxLayout(plan_box)
-        self.plan_label = QLabel(""); self.plan_label.setWordWrap(True)
-        self.plan_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        pv.addWidget(self.plan_label)
+        # Read-only and scrollable: a plan can list many limitations, and a
+        # fixed label clipped them.
+        self.plan_text = QPlainTextEdit(); self.plan_text.setReadOnly(True)
+        pv.addWidget(self.plan_text, 1)
         self.pin_btn = QPushButton("Pin current approved designs")
         self.pin_btn.setToolTip("Ties this shot to each character's current "
                                 "approved design. Later re-approvals don't "
                                 "change a pinned shot until you pin again.")
         self.pin_btn.clicked.connect(self._pin)
         pv.addWidget(self.pin_btn)
-        rv.addWidget(plan_box)
+        self.voice_btn = QPushButton("Voice this shot's lines")
+        self.voice_btn.setToolTip("Records each line with its speaker's own "
+                                  "voice. Lines whose speaker has no installed "
+                                  "voice are skipped and listed.")
+        self.voice_btn.clicked.connect(self._voice_lines)
+        pv.addWidget(self.voice_btn)
+        self.voice_label = QLabel(""); self.voice_label.setWordWrap(True)
+        pv.addWidget(self.voice_label)
+        rv.addWidget(plan_box, 1)
         split.addWidget(right)
 
     # -- state ---------------------------------------------------------------
@@ -154,8 +171,13 @@ class ShotPlanPanel(QWidget):
         self.speaker_combo.clear()
         for w in (self.add_line_btn, self.line_edit, self.speaker_combo, self.pin_btn):
             w.setEnabled(shot is not None)
+        can_voice = bool(shot and shot.dialogue_line_ids and self.voicer
+                         and self.audio_dir)
+        self.voice_btn.setEnabled(can_voice)
+        if self.voicer is None:
+            self.voice_btn.setToolTip("Voicing isn't available in this view.")
         if shot is None:
-            self.plan_label.setText("Add a shot to see its plan.")
+            self.plan_text.setPlainText("Add a shot to see its plan.")
             return
         lines = {d.id: d for d in self.project.dialogue}
         for lid in shot.dialogue_line_ids:
@@ -170,7 +192,7 @@ class ShotPlanPanel(QWidget):
         has_speaker = self.speaker_combo.count() > 0
         self.add_line_btn.setEnabled(has_speaker)
         self.line_edit.setEnabled(has_speaker)
-        self.plan_label.setText("\n".join(view.plan_lines(self.plan_for(shot))))
+        self.plan_text.setPlainText("\n".join(view.plan_lines(self.plan_for(shot))))
 
     # -- actions -------------------------------------------------------------
     def _engine_changed(self, key: str) -> None:
@@ -210,6 +232,27 @@ class ShotPlanPanel(QWidget):
         self.line_edit.clear()
         self.refresh(select_row=self.shot_list.currentRow())
         self._on_changed()
+
+    def _voice_lines(self) -> None:
+        shot = self.current_shot()
+        if shot is None or self.voicer is None or self.audio_dir is None:
+            return
+        from PySide6.QtWidgets import QApplication
+        from ..performance.voicing import write_manifest
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            takes = self.voicer.voice_all(self.project.dialogue,
+                                          self.project.characters,
+                                          self.audio_dir,
+                                          line_ids=shot.dialogue_line_ids)
+            write_manifest(takes, self.audio_dir)
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.last_takes = takes
+        done = [t for t in takes if t.ok]
+        lines = [f"Voiced {len(done)} of {len(takes)} line(s)."]
+        lines += [f"Not voiced: {t.message}" for t in takes if not t.ok]
+        self.voice_label.setText("\n".join(lines))
 
     def _pin(self) -> None:
         shot = self.current_shot()

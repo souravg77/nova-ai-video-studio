@@ -129,6 +129,23 @@ class Studio:
         self.store.save_project(p)
         return p
 
+    def open_recent_project(self, default_name: str = "Untitled Project") -> Project:
+        """The most recently saved project, or a new one if there is none.
+
+        A saved project is reopened rather than starting empty on every
+        launch, so characters, shots and scenes are not lost from view.
+        """
+        for row in self.store.list_projects():
+            try:
+                project = self.store.load_project(row["id"])
+            except Exception:
+                # A project from a newer NOVA (or a damaged one) is left
+                # untouched; never overwrite it with an empty project.
+                continue
+            if project is not None:
+                return project
+        return self.new_project(default_name)
+
     def save_project(self, project: Project) -> None:
         self.store.save_project(project)
 

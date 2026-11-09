@@ -26,9 +26,13 @@ from . import performance_view as view
 class CharacterStudioPanel(QWidget):
     def __init__(self, project, on_changed: Optional[Callable[[], None]] = None,
                  voice_choices: Optional[Callable[[], list[tuple[str, str, str]]]] = None,
+                 media_dir: Optional[Path] = None,
                  parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.project = project
+        # Uploaded reference images are copied here (one folder per
+        # character) when set; otherwise the original path is referenced.
+        self.media_dir = media_dir
         # (engine id, voice id, label) for each installed voice; see
         # performance.catalog.voice_choices.
         self._voice_choices = voice_choices or (lambda: [])
@@ -244,14 +248,17 @@ class CharacterStudioPanel(QWidget):
         self._on_changed()
 
     def add_reference_images(self, paths: list[Path]) -> bool:
+        c = self.current_character()
+        if c is None:
+            return False
+        dest = self.media_dir / c.id if self.media_dir else None
         try:
-            cands = [view.uploaded_candidate(Path(p)) for p in paths]
+            cands = [view.uploaded_candidate(Path(p), dest) for p in paths]
         except ValueError as exc:
             QMessageBox.warning(self, "Character Studio", str(exc))
             return False
-        c = self.current_character()
         ok = self._apply(ident.add_candidates, cands)
-        if ok and c is not None:
+        if ok:
             self._show_character(cand_row=len(c.candidates))  # first new one
         return ok
 

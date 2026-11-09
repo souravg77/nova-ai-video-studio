@@ -13,6 +13,7 @@ Honesty rules this module keeps:
 from __future__ import annotations
 
 import re
+import shutil
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -67,16 +68,28 @@ def candidate_row(c: Character, cand: Candidate) -> str:
     if cand.is_placeholder:
         tags.append("placeholder")
     tags.append("uploaded" if cand.source == CandidateSource.UPLOADED else "generated")
-    return f"{Path(cand.image_path).name} [batch {cand.batch}; {', '.join(tags)}]"
+    n = next((i for i, x in enumerate(c.candidates, 1) if x.id == cand.id), 0)
+    return f"Design {n}: batch {cand.batch}, {', '.join(tags)}"
 
 
-def uploaded_candidate(path: Path) -> Candidate:
+def uploaded_candidate(path: Path, copy_to: Optional[Path] = None) -> Candidate:
+    """A candidate for an uploaded image. With ``copy_to`` the image is copied
+    into the project, so the approved design survives the original being
+    moved or deleted."""
     if path.suffix.lower() not in IMAGE_SUFFIXES:
         raise ValueError(f"{path.name}: use a PNG, JPEG or WebP image.")
     if not path.is_file():
         raise ValueError(f"{path.name} does not exist.")
-    return Candidate(id="cand-" + uuid.uuid4().hex[:12], image_path=str(path),
-                     source=CandidateSource.UPLOADED)
+    cid = "cand-" + uuid.uuid4().hex[:12]
+    stored = path
+    if copy_to is not None:
+        copy_to.mkdir(parents=True, exist_ok=True)
+        stored = copy_to / f"{cid}{path.suffix.lower()}"
+        try:
+            shutil.copy2(path, stored)
+        except OSError as exc:
+            raise ValueError(f"Could not copy {path.name} into the project: {exc}")
+    return Candidate(id=cid, image_path=str(stored), source=CandidateSource.UPLOADED)
 
 
 def readiness_text(c: Character) -> str:

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QHBoxLayout, QLabel, QListWidget, QMainWindow,
     QMessageBox, QProgressBar, QPushButton, QTextEdit, QVBoxLayout, QWidget,
     QGroupBox, QSpinBox, QLineEdit, QSplitter, QPlainTextEdit,
-    QDoubleSpinBox, QCheckBox, QInputDialog,
+    QDoubleSpinBox, QCheckBox, QInputDialog, QScrollArea,
 )
 
 from ..core.capability import Profile
@@ -35,7 +35,7 @@ class MainWindow(QMainWindow):
     def __init__(self, studio: Studio) -> None:
         super().__init__()
         self.studio = studio
-        self.project = studio.new_project("Untitled Project")
+        self.project = studio.open_recent_project("Untitled Project")
         self.bridge = JobBridge()
         self.bridge.updated.connect(self._on_job_update)
         # The job currently running from this window (render or auto-video), so
@@ -51,7 +51,45 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("NOVA AI Video Studio")
         self.resize(1100, 720)
         self._build()
+        self._show_project()
         self._refresh_hardware()
+
+    @staticmethod
+    def _scrolling(widget: QWidget) -> QScrollArea:
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setWidget(widget)
+        # Scroll vertically only; keep the column wide enough for its content
+        # so nothing is cut off at the side.
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        area.setMinimumWidth(widget.minimumSizeHint().width()
+                             + area.verticalScrollBar().sizeHint().width() + 4)
+        return area
+
+    def _show_project(self) -> None:
+        """Fill the editor from the (possibly reopened) project."""
+        p = self.project
+        self.name_edit.setText(p.name)
+        self.w_spin.setValue(p.target_width)
+        self.h_spin.setValue(p.target_height)
+        self.fps_spin.setValue(p.target_fps)
+        self.asset_list.clear()
+        for asset in p.assets:
+            self._add_asset_row(asset)
+        self.scene_list.clear()
+        for scene in p.scenes:
+            asset = p.asset_by_id(scene.visual_asset_id) if scene.visual_asset_id else None
+            self.scene_list.addItem(
+                f"{scene.title}: {Path(asset.path).name}" if asset else scene.title)
+        self.voice_panel.set_scenes([s.title for s in p.scenes])
+
+    def _add_asset_row(self, asset) -> None:
+        self.asset_list.addItem(
+            f"[{asset.kind.value}] {Path(asset.path).name}"
+            + (f"  {asset.width}x{asset.height}" if asset.width else "")
+            + (f"  {asset.duration_s:.1f}s" if asset.duration_s else ""))
+        self.asset_list.item(self.asset_list.count() - 1).setData(
+            Qt.UserRole, asset.id)
 
     # ------------------------------------------------------------------
     def _build(self) -> None:
@@ -238,11 +276,13 @@ class MainWindow(QMainWindow):
         jv.addWidget(self.job_log)
         rv.addWidget(jobs_box)
 
-        splitter.addWidget(right)
+        # Scrollable columns: on a laptop-height window the stacked groups
+        # were squeezed until their text overlapped.
+        splitter.addWidget(self._scrolling(right))
 
         # ---- Voice Studio (Phase 3) as a third pane ----
         self.voice_panel = VoiceStudioPanel(self.studio)
-        splitter.addWidget(self.voice_panel)
+        splitter.addWidget(self._scrolling(self.voice_panel))
 
         splitter.setSizes([400, 500, 360])
         self.setCentralWidget(splitter)
@@ -299,12 +339,7 @@ class MainWindow(QMainWindow):
         for path in paths:
             try:
                 asset = self.studio.import_media(self.project, path)
-                self.asset_list.addItem(
-                    f"[{asset.kind.value}] {Path(asset.path).name}"
-                    + (f"  {asset.width}x{asset.height}" if asset.width else "")
-                    + (f"  {asset.duration_s:.1f}s" if asset.duration_s else ""))
-                self.asset_list.item(self.asset_list.count() - 1).setData(
-                    Qt.UserRole, asset.id)
+                self._add_asset_row(asset)
             except ValueError as exc:
                 QMessageBox.warning(self, "Import rejected", str(exc))
 

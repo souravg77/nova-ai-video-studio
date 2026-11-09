@@ -212,7 +212,8 @@ class WorkspaceWindow(QMainWindow):
         self.jobs.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.jobs.setEditTriggers(QTableWidget.NoEditTriggers)
         self._job_rows: dict[str, int] = {}
-        self._add_dock("Jobs", "dock_jobs", self.jobs, Qt.BottomDockWidgetArea)
+        self.jobs_dock = self._add_dock("Jobs", "dock_jobs", self.jobs,
+                                        Qt.BottomDockWidgetArea)
 
     def _add_dock(self, title: str, name: str, widget: QWidget, area) -> QDockWidget:
         dock = QDockWidget(title, self)
@@ -284,6 +285,9 @@ class WorkspaceWindow(QMainWindow):
             self.restoreGeometry(QByteArray.fromBase64(s.workspace_geometry.encode()))
         else:
             self.resize(1400, 860)
+        if not s.workspace_state:
+            # First launch: a compact job queue, so the modes get the space.
+            self.resizeDocks([self.jobs_dock], [170], Qt.Vertical)
         if s.workspace_state:
             self.restoreState(QByteArray.fromBase64(s.workspace_state.encode()))
 
@@ -296,6 +300,12 @@ class WorkspaceWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt signature)
         self._timer.stop()
+        try:
+            # Character, dialogue and shot edits live in the project; keep
+            # them even if Save was never pressed.
+            self.studio.save_project(self.project)
+        except Exception as exc:  # never block closing, but say so
+            QMessageBox.warning(self, "NOVA", f"Could not save the project: {exc}")
         try:
             self.save_layout()
         except OSError as exc:
