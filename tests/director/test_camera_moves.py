@@ -95,3 +95,24 @@ def test_animatic_turns_approved_stills_into_moving_shots(tmp_path):
     still = build_animatic(p, Renderer(), None, tmp_path / "b.mp4", width=320, height=180,
                            fps=12, preset="ultrafast")
     assert still.camera_moves == 0 and still.depth_source == ""
+
+
+def _installed_depth_model():
+    import os
+    from pathlib import Path
+    from nova_studio.media.parallax import find_depth_model
+    return find_depth_model(Path(os.environ.get("LOCALAPPDATA", "")) / "NovaStudio" / "NovaStudio" / "models")
+
+
+@pytest.mark.skipif(_installed_depth_model() is None, reason="depth model not installed")
+def test_real_depth_model_separates_near_from_far():
+    pytest.importorskip("onnxruntime")
+    from nova_studio.media.parallax import DepthAnythingOnnx
+    src = DepthAnythingOnnx(_installed_depth_model())
+    assert src.measured
+    # A bright near block on a gradient wall: the block must read nearer.
+    img = np.tile(np.linspace(40, 200, 320, dtype=np.uint8), (240, 1))
+    rgb = np.dstack([img, img, img]).copy()
+    rgb[120:230, 120:200] = (200, 60, 60)
+    d = src.depth(rgb)
+    assert d.shape == (240, 320) and 0.0 <= d.min() and d.max() <= 1.0

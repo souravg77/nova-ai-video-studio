@@ -59,7 +59,11 @@ class DepthAnythingOnnx:
     def depth(self, rgb: np.ndarray) -> np.ndarray:
         import cv2
         h, w = rgb.shape[:2]
-        x = cv2.resize(rgb, (self.SIZE, self.SIZE), interpolation=cv2.INTER_CUBIC)
+        # As the model's preprocessor: keep the aspect ratio, short side ~518,
+        # both sides a multiple of 14 (the ViT patch size).
+        s = self.SIZE / min(h, w)
+        nh, nw = (max(14, int(round(v * s / 14)) * 14) for v in (h, w))
+        x = cv2.resize(rgb, (nw, nh), interpolation=cv2.INTER_CUBIC)
         x = (x.astype(np.float32) / 255.0 - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]
         x = x.transpose(2, 0, 1)[None].astype(np.float32)
         out = np.asarray(self.session.run(None, {self.input: x})[0]).squeeze()
