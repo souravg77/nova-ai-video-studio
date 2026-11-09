@@ -129,4 +129,90 @@ assert gp.version_list.count() == 0 and not gp.next_start_btn.isEnabled()
 # No engine at all: says so.
 none = GeneratePanel(project, engine=None, generations_dir=tmp / "gen")
 assert not none.generate_btn.isEnabled() and "No video engine" in none.blocker_label.text()
+
+# A local engine next to the cloud one: picked by the user, never asked to
+# confirm a send (nothing leaves the PC), and limited by its own capabilities.
+from nova_studio.performance.engines import (EngineCapabilities, EngineSpec,
+                                             EngineStatus, Role)
+from nova_studio.adapters.gemini_omni import OmniTake
+
+
+class LocalEngine:
+    resolutions = ("320p",)
+    model = "local-test"
+    runs = []
+
+    def spec(self):
+        return EngineSpec(id="local-test", name="Local preview (test)",
+                          roles=frozenset({Role.VIDEO}),
+                          capabilities=EngineCapabilities(
+                              video_generation=True, min_duration_s=1.0,
+                              max_duration_s=2.0, aspect_ratios=("16:9",)),
+                          status_fn=lambda: EngineStatus(True))
+
+    def status(self):
+        return EngineStatus(True)
+
+    def generate(self, req, out_path, on_progress=None):
+        LocalEngine.runs.append(req.prompt)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(clip_bytes)
+        return OmniTake(path=out_path, interaction_id="", duration_s=1.0,
+                        has_audio=False, width=512, height=320,
+                        requested_duration_s=req.duration_s, model="local-test")
+
+
+asked.clear()
+two = GeneratePanel(project, generations_dir=tmp / "gen",
+                    engines=[eng, LocalEngine()],
+                    confirm=lambda text: (asked.append(text), True)[1])
+assert two.engine_combo.count() == 2 and two.engine_combo.isEnabled()
+two.engine_combo.setCurrentIndex(1)
+assert [two.res_combo.itemText(i) for i in range(two.res_combo.count())] == ["320p"]
+assert two.dur_spin.maximum() == 2.0 and two.dur_spin.value() == 2.0
+two.prompt_edit.setPlainText("A quick preview.")
+two.mode_combo.setCurrentIndex(two.mode_combo.findData("characters"))
+assert not two.generate_btn.isEnabled() and "character references" in two.blocker_label.text()
+two.mode_combo.setCurrentIndex(two.mode_combo.findData("text"))
+assert "Nothing is sent" in two.usage_label.text()
+assert two.generate(); two.wait()
+assert LocalEngine.runs == ["A quick preview."] and asked == []
+assert "local-test" in two.version_detail.text() and "SynthID" not in two.version_detail.text()
+
+# @mentions: the picker inserts the name; the approved design goes along.
+gp.shot_list.setCurrentRow(1)                     # shot-2 has no characters
+gp.mode_combo.setCurrentIndex(gp.mode_combo.findData("text"))
+gp.prompt_edit.setPlainText("")
+i = gp.mention_combo.findData("Maya")
+assert i > 0
+gp._insert_mention(i)
+assert gp.prompt_edit.toPlainText() == "@Maya " and gp.mention_combo.currentIndex() == 0
+gp.prompt_edit.insertPlainText("walks in.")
+calls.clear(); asked.clear()
+assert gp.generate_btn.isEnabled(), gp.blocker_label.text()
+gp.out_spin.setValue(1)
+assert gp.generate(); gp.wait()
+sent = calls[0]["input"]
+assert sent[0]["type"] == "image" and sent[-1]["text"].startswith("Maya walks in.")
+
+# Extend: only Gemini versions, a continuation prompt, a yes, then measured.
+gp.shot_list.setCurrentRow(0)
+gp.version_list.setCurrentRow(0)                 # newest: the local preview
+assert not gp.extend_btn.isEnabled() and "Gemini" in gp.extend_btn.toolTip()
+vs = gp._versions()
+gp.version_list.setCurrentRow(next(i for i, v in enumerate(vs)
+                                   if v.engine_id == "gemini-omni-flash" and v.ok))
+assert not gp.extend_btn.isEnabled() and "continues" in gp.extend_btn.toolTip()
+gp.extend_prompt.setText("She steps through the door.")
+if have_ffmpeg:
+    assert gp.extend_btn.isEnabled(), gp.extend_btn.toolTip()
+    before = gp.version_list.count()
+    asked.clear(); calls.clear()
+    assert gp.extend(); gp.wait()
+    assert asked and "continue this clip" in asked[-1]
+    assert calls[0]["previous_interaction_id"].startswith("v1_")
+    assert gp.version_list.count() == before + 1
+    gp.version_list.setCurrentRow(0)
+    assert "Extended clip" in gp.version_list.item(0).text()
+    assert "joined" in gp.version_detail.text(), gp.version_detail.text()
 print("ok")

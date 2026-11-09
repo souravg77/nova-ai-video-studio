@@ -148,3 +148,43 @@ def test_save_frame_reads_a_real_frame(tmp_path):
     assert out.is_file() and out.stat().st_size > 0
     with pytest.raises(ValueError):
         save_frame(tmp_path / "missing.mp4", 0, tmp_path / "x.png")
+
+
+def test_engine_capabilities_decide_what_can_be_asked(project):
+    from nova_studio.performance.engines import EngineCapabilities
+    local = EngineCapabilities(video_generation=True, min_duration_s=1.0,
+                               max_duration_s=2.0, aspect_ratios=("16:9",))
+    spec = gr.GenerateSpec("shot-1", "characters", "Maya waves.", duration_s=1.5)
+    assert any("character references" in b for b in gr.prepare(spec, project, local).blockers)
+    frames = gr.GenerateSpec("shot-1", "frames", "Go.", duration_s=1.5)
+    assert any("start from a frame" in b for b in gr.prepare(frames, project, local).blockers)
+    long = gr.GenerateSpec("shot-1", "text", "Go.", duration_s=6)
+    assert any("1-2 s clips" in b for b in gr.prepare(long, project, local).blockers)
+    assert gr.prepare(gr.GenerateSpec("shot-1", "text", "Go.", duration_s=1.5),
+                      project, local).ok
+    assert "Nothing is sent" in gr.usage_text(spec, "Local", is_cloud=False)
+
+
+def test_mentions_bring_approved_designs_and_are_cleaned(project):
+    found, cleaned, unknown = gr.find_mentions(
+        "@Maya waves at @leo and @Nobody, mail me@x.com", project.characters)
+    assert [c.id for c in found] == ["maya", "leo"]
+    assert cleaned == "Maya waves at leo and @Nobody, mail me@x.com"
+    assert unknown == ["Nobody"]
+    ok = gr.prepare(gr.GenerateSpec("shot-2", "text", "@Maya opens the door."), project)
+    assert ok.ok and ok.request.prompt == "Maya opens the door."
+    assert [i.role for i in ok.request.images] == ["reference"]
+    leo = gr.prepare(gr.GenerateSpec("shot-1", "text", "@Leo sits."), project)
+    assert not leo.ok and any("Leo has no approved design" in b for b in leo.blockers)
+    odd = gr.prepare(gr.GenerateSpec("shot-1", "text", "Hi @Zed"), project)
+    assert odd.ok and "No character is called @Zed" in odd.warnings[0]
+    # Already a reference in characters mode: not sent twice.
+    twice = gr.prepare(gr.GenerateSpec("shot-1", "characters", "@Maya waves."), project)
+    assert twice.ok and len(twice.request.images) == 1
+
+
+def test_longest_name_wins(project):
+    from nova_studio.performance import characters as ident
+    chars = [ident.create_character("m", "Mary"), ident.create_character("ma", "Mary Ann")]
+    found, cleaned, _ = gr.find_mentions("@Mary Ann and @Mary.", chars)
+    assert [c.id for c in found] == ["ma", "m"] and cleaned == "Mary Ann and Mary."

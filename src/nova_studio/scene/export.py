@@ -9,7 +9,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -82,6 +82,14 @@ def export_scene(cuts: list[ResolvedCut], out_path: Path, width: int = 1280,
             parts = []
             for i, c in enumerate(cuts):
                 say(f"Preparing shot {i + 1} of {len(cuts)}")
+                if c.kind == CLIP:
+                    # Trust the file, not the record: map sound only if the
+                    # clip really has an audio stream.
+                    info = probe(c.source)
+                    if not info.ok or not info.has_video:
+                        raise RuntimeError(f"Shot {c.shot_id}'s clip can't be read: "
+                                           f"{info.error or 'no video stream'}")
+                    c = replace(c, has_audio=info.has_audio)
                 seg = tmp / f"cut_{i:03d}.mp4"
                 _segment(c, seg, width, height, fps, ff)
                 parts.append(seg)

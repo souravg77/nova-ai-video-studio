@@ -103,6 +103,9 @@ class OmniRequest:
     resolution: str = "720p"
     duration_s: Optional[float] = None
     images: list[ImageInput] = field(default_factory=list)
+    # Continue a video this API generated earlier (Google's "extend" task).
+    # Google decides how long it keeps that video; an expired id is an error.
+    previous_interaction_id: Optional[str] = None
 
 
 @dataclass
@@ -119,6 +122,9 @@ class OmniTake:
 
 
 class GeminiOmniEngine:
+    resolutions = RESOLUTIONS
+    model = MODEL
+
     def __init__(self, api_key_provider: Callable[[], Optional[str]],
                  cloud_enabled: Callable[[], bool],
                  transport: Transport = urllib_transport,
@@ -172,6 +178,8 @@ class GeminiOmniEngine:
             # measure the real length afterwards.
             prompt += f" The clip is about {req.duration_s:g} seconds long."
         firsts = [i for i in req.images if i.role == "first_frame"]
+        if req.previous_interaction_id and req.images:
+            raise OmniError("Extending a clip takes a text prompt only.")
         lasts = [i for i in req.images if i.role == "last_frame"]
         refs = [i for i in req.images if i.role == "reference"]
         if lasts and not firsts:
@@ -187,6 +195,9 @@ class GeminiOmniEngine:
                                 "aspect_ratio": req.aspect_ratio,
                                 "resolution": req.resolution},
         }
+        if req.previous_interaction_id:
+            body["previous_interaction_id"] = req.previous_interaction_id
+            body["generation_config"] = {"video_config": {"task": "extend"}}
         if not req.images:
             body["input"] = prompt
             return body

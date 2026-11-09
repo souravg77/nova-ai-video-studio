@@ -19,11 +19,12 @@ from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QComboBox, QDoubleSpinBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel,
-    QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
+    QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
     QSpinBox, QSplitter, QVBoxLayout, QWidget)
 
-from ..adapters.gemini_omni import CAPABILITIES, RESOLUTIONS
+from ..adapters.gemini_omni import RESOLUTIONS
 from ..generate import request as gr
+from ..generate.extend import can_extend, extend_version
 from ..generate.frames import save_frame
 from ..generate.runner import run_generation
 from ..generate.versions import VersionStore
@@ -48,10 +49,15 @@ class GeneratePanel(QWidget):
     def __init__(self, project, engine=None, generations_dir: Optional[Path] = None,
                  on_changed: Optional[Callable[[], None]] = None,
                  confirm: Optional[Callable[[str], bool]] = None,
+                 engines: Optional[list] = None,
                  parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.project = project
-        self.engine = engine            # adapters.gemini_omni.GeminiOmniEngine
+        # Video engines with status(), spec() and generate(), such as
+        # adapters.gemini_omni.GeminiOmniEngine. The user picks one; NOVA
+        # never switches engines (local or cloud) on its own.
+        self.engines = list(engines) if engines is not None else (
+            [engine] if engine is not None else [])
         self.store = VersionStore(generations_dir) if generations_dir else None
         self._on_changed = on_changed or (lambda: None)
         self._confirm = confirm or self._ask
@@ -78,11 +84,21 @@ class GeneratePanel(QWidget):
         lv.addWidget(shots, 1)
 
         req = QGroupBox("Request"); rv = QVBoxLayout(req)
+        self.engine_combo = QComboBox()
+        for e in self.engines:
+            self.engine_combo.addItem(e.spec().name)
+        self.engine_combo.currentIndexChanged.connect(lambda _i: self._engine_changed())
+        rv.addWidget(self.engine_combo)
         self.mode_combo = QComboBox()
         for m in gr.MODES:
             self.mode_combo.addItem(gr.MODE_LABELS[m], m)
         self.mode_combo.currentIndexChanged.connect(lambda _i: self._update())
         rv.addWidget(self.mode_combo)
+        self.mention_combo = QComboBox()
+        self.mention_combo.setToolTip("Insert @Name: that character's approved "
+                                      "design goes along as a reference.")
+        self.mention_combo.activated.connect(self._insert_mention)
+        rv.addWidget(self.mention_combo)
         self.prompt_edit = QPlainTextEdit()
         self.prompt_edit.setPlaceholderText(
             "Describe the shot: who, what happens, where, camera, light, sound.")
@@ -101,14 +117,8 @@ class GeneratePanel(QWidget):
             self.frame_btns[key] = (lab, pick, clear)
         opts = QHBoxLayout()
         self.aspect_combo = QComboBox()
-        for a in CAPABILITIES.aspect_ratios:
-            self.aspect_combo.addItem(a, a)
         self.res_combo = QComboBox()
-        for r in RESOLUTIONS:
-            self.res_combo.addItem(r, r)
-        self.res_combo.setCurrentIndex(max(self.res_combo.findData("720p"), 0))
         self.dur_spin = QDoubleSpinBox()
-        self.dur_spin.setRange(CAPABILITIES.min_duration_s, CAPABILITIES.max_duration_s)
         self.dur_spin.setSuffix(" s"); self.dur_spin.setDecimals(1)
         self.out_spin = QSpinBox(); self.out_spin.setRange(1, gr.MAX_OUTPUTS)
         self.out_spin.setSuffix(" version(s)")
@@ -135,6 +145,7 @@ class GeneratePanel(QWidget):
         rv.addWidget(self.progress_label)
         lv.addWidget(req, 2)
         split.addWidget(left)
+        self._fill_engine_options()
 
         right = QWidget(); gv = QVBoxLayout(right)
         vbox = QGroupBox("Versions of this shot"); vv = QVBoxLayout(vbox)
@@ -155,10 +166,58 @@ class GeneratePanel(QWidget):
         self.next_start_btn.clicked.connect(self._frame_to_next_shot)
         r2.addWidget(self.frame_at); r2.addWidget(self.next_start_btn, 1)
         vv.addLayout(r2)
+        ext = QGroupBox("Extend this version (longer shot)"); xv = QVBoxLayout(ext)
+        self.extend_prompt = QLineEdit()
+        self.extend_prompt.setPlaceholderText("How does the action continue?")
+        self.extend_prompt.textChanged.connect(lambda _t: self._update_version_buttons())
+        xv.addWidget(self.extend_prompt)
+        r3 = QHBoxLayout()
+        self.extend_spin = QDoubleSpinBox(); self.extend_spin.setRange(3.0, 10.0)
+        self.extend_spin.setValue(6.0); self.extend_spin.setSuffix(" s more")
+        self.extend_btn = QPushButton("Extend")
+        self.extend_btn.clicked.connect(self.extend)
+        r3.addWidget(self.extend_spin); r3.addWidget(self.extend_btn, 1)
+        xv.addLayout(r3)
+        vv.addWidget(ext)
         self.version_detail = QLabel(""); self.version_detail.setWordWrap(True)
         vv.addWidget(self.version_detail)
         gv.addWidget(vbox)
         split.addWidget(right)
+
+    # -- engine --------------------------------------------------------------
+    @property
+    def engine(self):
+        i = self.engine_combo.currentIndex()
+        return self.engines[i] if 0 <= i < len(self.engines) else None
+
+    def caps(self):
+        from ..adapters.gemini_omni import CAPABILITIES
+        e = self.engine
+        return e.spec().capabilities if e is not None else CAPABILITIES
+
+    def _fill_engine_options(self) -> None:
+        caps, e = self.caps(), self.engine
+        keep_a, keep_r = self.aspect_combo.currentData(), self.res_combo.currentData()
+        for combo in (self.aspect_combo, self.res_combo):
+            combo.blockSignals(True); combo.clear()
+        for a in caps.aspect_ratios or ("16:9",):
+            self.aspect_combo.addItem(a, a)
+        for r in getattr(e, "resolutions", None) or RESOLUTIONS:
+            self.res_combo.addItem(r, r)
+        for combo, keep, default in ((self.aspect_combo, keep_a, None),
+                                     (self.res_combo, keep_r, "720p")):
+            i = combo.findData(keep)
+            if i < 0:
+                i = combo.findData(default) if default else 0
+            combo.setCurrentIndex(max(i, 0))
+            combo.blockSignals(False)
+        self.dur_spin.blockSignals(True)
+        self.dur_spin.setRange(caps.min_duration_s or 1.0, caps.max_duration_s or 10.0)
+        self.dur_spin.blockSignals(False)
+
+    def _engine_changed(self) -> None:
+        self._fill_engine_options()
+        self._show_shot()
 
     # -- state ---------------------------------------------------------------
     def current_shot(self):
@@ -205,15 +264,33 @@ class GeneratePanel(QWidget):
         self.shot_list.blockSignals(False)
         self._show_shot()
 
+    def _fill_mentions(self) -> None:
+        self.mention_combo.blockSignals(True)
+        self.mention_combo.clear()
+        self.mention_combo.addItem("Mention a character…", None)
+        for c in self.project.characters:
+            self.mention_combo.addItem(f"@{c.name}" + ("" if c.approved else
+                                                       " (not approved)"), c.name)
+        self.mention_combo.setCurrentIndex(0)
+        self.mention_combo.blockSignals(False)
+
+    def _insert_mention(self, index: int) -> None:
+        name = self.mention_combo.itemData(index)
+        if name:
+            self.prompt_edit.insertPlainText(f"@{name} ")
+            self.prompt_edit.setFocus()
+        self.mention_combo.setCurrentIndex(0)
+
     def _show_shot(self) -> None:
+        self._fill_mentions()
         shot = self.current_shot()
         self.prompt_edit.blockSignals(True)
         self.prompt_edit.setPlainText(self._prompts.get(shot.id, "") if shot else "")
         self.prompt_edit.blockSignals(False)
         if shot is not None:
             self.dur_spin.blockSignals(True)
-            self.dur_spin.setValue(min(max(shot.duration_s, CAPABILITIES.min_duration_s),
-                                       CAPABILITIES.max_duration_s))
+            self.dur_spin.setValue(min(max(shot.duration_s, self.dur_spin.minimum()),
+                                       self.dur_spin.maximum()))
             self.dur_spin.blockSignals(False)
         self._show_versions()
         self._update()
@@ -247,18 +324,19 @@ class GeneratePanel(QWidget):
             reasons.append("Add a shot in the shot plan first.")
         if self.store is None:
             reasons.append("Generation isn't available in this view.")
-        if self.engine is None:
+        e = self.engine
+        if e is None:
             reasons.append("No video engine is set up.")
         else:
-            st = self.engine.status()
+            st = e.status()
             if not st.available:
-                reasons.append(f"Gemini Omni Flash is unavailable: {st.reason}.")
+                reasons.append(f"{e.spec().name} is unavailable: {st.reason}.")
         warnings = []
         if spec is not None:
-            prep = gr.prepare(spec, self.project)
+            prep = gr.prepare(spec, self.project, self.caps())
             reasons += prep.blockers
             warnings = prep.warnings
-            self.usage_label.setText(gr.usage_text(spec))
+            self.usage_label.setText(self._usage(spec))
         else:
             self.usage_label.setText("")
         self.blocker_label.setText("\n".join(
@@ -266,6 +344,7 @@ class GeneratePanel(QWidget):
             + [f"Warning: {w}" for w in warnings]))
         self.generate_btn.setEnabled(not reasons and not self.busy())
         self.mode_combo.setEnabled(not self.busy())
+        self.engine_combo.setEnabled(not self.busy() and len(self.engines) > 1)
 
     def _update_version_buttons(self) -> None:
         v = self.current_version()
@@ -276,6 +355,17 @@ class GeneratePanel(QWidget):
         self.open_btn.setEnabled(usable)
         has_next = bool(shot) and self._next_shot(shot) is not None
         self.next_start_btn.setEnabled(usable and has_next)
+        why = can_extend(v)
+        omni = next((e for e in self.engines
+                     if e.spec().id == (v.engine_id if v else None)), None)
+        if why is None and omni is None:
+            why = "That clip's engine isn't set up here."
+        elif why is None and not omni.status().available:
+            why = f"{omni.spec().name} is unavailable: {omni.status().reason}."
+        elif why is None and not self.extend_prompt.text().strip():
+            why = "Describe how the action continues."
+        self.extend_btn.setEnabled(why is None and not self.busy())
+        self.extend_btn.setToolTip(why or "")
         self.next_start_btn.setToolTip("" if has_next else "This is the last shot.")
         if v is not None and v.duration_s:
             self.frame_at.setMaximum(max(v.duration_s - 0.05, 0.0))
@@ -284,7 +374,9 @@ class GeneratePanel(QWidget):
         else:
             self.version_detail.setText(
                 f"Prompt: {v.prompt}\n{v.message}"
-                + (f"\n{v.width}x{v.height}, {v.model}, SynthID watermark"
+                + (f"\n{v.width}x{v.height}, {v.engine_id}"
+                   + (f" ({v.model})" if v.model else "")
+                   + (", SynthID watermark" if v.engine_id == "gemini-omni-flash" else "")
                    if v.ok and v.width else ""))
 
     # -- actions -------------------------------------------------------------
@@ -329,20 +421,28 @@ class GeneratePanel(QWidget):
             self, "Send to Google?", text + "\n\nSend it?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
 
+    def _usage(self, spec) -> str:
+        e = self.engine
+        if e is None:
+            return ""
+        return gr.usage_text(spec, e.spec().name, self.caps().is_cloud)
+
     def generate(self) -> bool:
         spec = self.spec()
         if spec is None or not self.generate_btn.isEnabled():
             return False
-        if not self._confirm(gr.usage_text(spec)):
+        # Anything that leaves this PC needs a yes every time.
+        if self.caps().is_cloud and not self._confirm(self._usage(spec)):
             self.progress_label.setText("Not sent.")
             return False
+        engine = self.engine
         self._cancel.clear()
         self._result = None
         self._progress = "Starting"
 
         def work():
             try:
-                vs = run_generation(self.engine, spec, self.project, self.store,
+                vs = run_generation(engine, spec, self.project, self.store,
                                     on_progress=self._set_progress, cancel=self._cancel)
                 self._result = ("ok", vs)
             except Exception as exc:          # reported to the user, never hidden
@@ -352,6 +452,37 @@ class GeneratePanel(QWidget):
         self._thread.start()
         self.stop_btn.setEnabled(spec.outputs > 1)
         self._update()
+        self._timer.start()
+        return True
+
+    def extend(self) -> bool:
+        v = self.current_version()
+        if v is None or not self.extend_btn.isEnabled():
+            return False
+        engine = next(e for e in self.engines if e.spec().id == v.engine_id)
+        secs = self.extend_spin.value()
+        text = (f"This sends 1 request to Google ({engine.spec().name}, cloud) to "
+                f"continue this clip by about {secs:g} s at {v.resolution or '720p'}: "
+                f"about {secs:g} s of video billed to your Gemini API key. "
+                f"Google sets the price; NOVA can't see your bill.")
+        if not self._confirm(text):
+            self.progress_label.setText("Not sent.")
+            return False
+        prompt = self.extend_prompt.text()
+        self._result = None
+        self._progress = "Starting"
+
+        def work():
+            try:
+                nv = extend_version(engine, v, prompt, secs, self.store,
+                                    on_progress=self._set_progress)
+                self._result = ("ok", [nv])
+            except Exception as exc:
+                self._result = ("error", str(exc))
+
+        self._thread = threading.Thread(target=work, daemon=True)
+        self._thread.start()
+        self._update(); self._update_version_buttons()
         self._timer.start()
         return True
 
