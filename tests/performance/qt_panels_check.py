@@ -137,3 +137,32 @@ sp2.refresh()
 assert "(out of date)" in sp2.line_list.item(0).text()
 assert "need a take" in sp2.timing_label.text() and not sp2.fit_btn.isEnabled()
 print("ok")
+
+# Reference views and sheet: views need an unlocked approved design; images
+# are copied into the project; the sheet is rendered from the real data.
+media = tmp / "media"
+cs4 = CharacterStudioPanel(project, media_dir=media)
+cs4.char_list.setCurrentRow(0)                       # Maya: approved, locked
+assert cs4.view_combo.count() == 11 and not cs4.view_add_btn.isEnabled()
+assert "Unlock" in cs4.views_note.text()
+from nova_studio.performance import characters as ident
+project.put_character(ident.unlock_identity(project.character("maya"), "add views"))
+cs4.refresh(select_id="maya")
+assert cs4.view_add_btn.isEnabled() and not cs4.view_clear_btn.isEnabled()
+side = tmp / "side.png"
+q.save(str(side))
+assert cs4.set_view_image("side", side)
+stored = project.character("maya").approved.views["side"]
+assert Path(stored).parent == media / "maya" and Path(stored).is_file()
+assert "Side: view-side-" in cs4.view_combo.currentText()
+assert cs4.view_clear_btn.isEnabled()
+rep = cs4.make_sheet()
+assert rep.approved and Path(rep.path).is_file() and "side" in rep.filled
+assert Path(rep.path).parent == media / "maya"
+assert "views filled" in cs4.views_note.text()
+cs4.view_clear_btn.click()
+assert "side" not in project.character("maya").approved.views
+cs4.char_list.setCurrentRow(1)                       # Leo: nothing approved
+assert cs4.view_combo.count() == 0 and "Approve a design first" in cs4.views_note.text()
+assert not cs4.make_sheet().approved                 # a DRAFT sheet, never a fake approval
+print("ok")

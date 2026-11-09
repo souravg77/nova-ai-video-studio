@@ -178,3 +178,66 @@ def plan_lines(plan: ShotPlan) -> list[str]:
             lim.severity, "Note")
         out.append(f"{label}: {lim.message}")
     return out
+
+
+# ---- reference views and sheets ---------------------------------------------
+def copy_into_project(path: Path, dest_dir: Optional[Path], stem: str) -> Path:
+    """Copy an image into the project so it survives the original moving."""
+    if path.suffix.lower() not in IMAGE_SUFFIXES:
+        raise ValueError(f"{path.name}: use a PNG, JPEG or WebP image.")
+    if not path.is_file():
+        raise ValueError(f"{path.name} does not exist.")
+    if dest_dir is None:
+        return path
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    stored = dest_dir / f"{stem}-{uuid.uuid4().hex[:8]}{path.suffix.lower()}"
+    try:
+        shutil.copy2(path, stored)
+    except OSError as exc:
+        raise ValueError(f"Could not copy {path.name} into the project: {exc}")
+    return stored
+
+
+def view_rows(c: Optional[Character]) -> list[tuple[str, str]]:
+    """(slot, text) for each reference view slot the user can fill. The front
+    view is the approved design itself, so it is listed but not editable."""
+    from ..sheets.views import ALL_SLOTS, slot_label, view_path
+    if c is None or c.approved is None:
+        return []
+    rows = []
+    for slot in ALL_SLOTS:
+        if slot == "front":
+            continue
+        p = view_path(c, slot)
+        rows.append((slot, f"{slot_label(slot)}: "
+                           + (Path(p).name if p else "empty")))
+    return rows
+
+
+def views_hint(c: Optional[Character]) -> str:
+    if c is None:
+        return ""
+    if c.approved is None:
+        return "Approve a design first; views belong to the approved design."
+    if c.locked:
+        return "Unlock the identity to change its reference views."
+    return ("Add your own image for each view. Generating views needs an "
+            "image engine, which this build doesn't include.")
+
+
+def sheet_path(media_dir: Optional[Path], c: Character) -> Path:
+    base = (media_dir / c.id) if media_dir else Path.cwd()
+    tag = f"v{c.approved.version}" if c.approved else "draft"
+    return base / f"{c.id}_reference_sheet_{tag}.png"
+
+
+def sheet_summary(rep) -> str:
+    from ..sheets.views import ALL_SLOTS
+    if not rep.approved:
+        head = "Draft sheet made: this character has no approved design yet."
+    else:
+        head = (f"Reference sheet for v{rep.version} made: "
+                f"{len(ALL_SLOTS) - len(rep.missing)} of {len(ALL_SLOTS)} views filled.")
+    lines = [head, f"Saved to {rep.path}"]
+    lines += ["Warning: " + w for w in rep.warnings]
+    return "\n".join(lines)

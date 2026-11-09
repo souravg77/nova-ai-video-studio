@@ -5,7 +5,9 @@ measured when it was voiced). A take no longer counts when:
 
 * its audio file is gone,
 * the line's text changed after it was voiced, or
-* the speaker's voice changed after it was voiced.
+* the speaker's voice changed after it was voiced, or
+* the line's approved pace changed after it was voiced (when ``scale_for``
+  is given).
 
 Those lines are reported as needing a (re)take; their length is never
 estimated from word counts and shown as if measured. A shot's timing is only
@@ -86,7 +88,7 @@ class ShotTiming:
 
 
 def _take_state(line: DialogueLine, entry: Optional[dict],
-                speaker) -> tuple[str, str]:
+                speaker, scale_for=None) -> tuple[str, str]:
     if not entry or not entry.get("ok") or not entry.get("audio_path"):
         return NOT_VOICED, "No take yet."
     if not Path(entry["audio_path"]).is_file():
@@ -95,13 +97,15 @@ def _take_state(line: DialogueLine, entry: Optional[dict],
         return STALE, "The line was edited after it was voiced."
     if speaker is not None and entry.get("voice_id") != speaker.voice.voice_id:
         return STALE, "The speaker's voice changed after this take."
+    if scale_for is not None and entry.get("length_scale") != scale_for(line):
+        return STALE, "The line's approved pace changed after this take."
     if not entry.get("duration_s"):
         return NOT_VOICED, "The take has no measured length."
     return VOICED, ""
 
 
 def shot_timing(shot: Shot, dialogue: list[DialogueLine], characters,
-                manifest: dict) -> ShotTiming:
+                manifest: dict, scale_for=None) -> ShotTiming:
     by_id = {d.id: d for d in dialogue}
     speakers = {c.id: c for c in characters}
     out = ShotTiming(shot_id=shot.id, shot_s=shot.duration_s)
@@ -111,7 +115,8 @@ def shot_timing(shot: Shot, dialogue: list[DialogueLine], characters,
         if line is None:
             continue
         entry = manifest.get(lid)
-        status, reason = _take_state(line, entry, speakers.get(line.speaker_id))
+        status, reason = _take_state(line, entry, speakers.get(line.speaker_id),
+                                     scale_for)
         t = LineTiming(line_id=lid, speaker_id=line.speaker_id, text=line.text,
                        status=status, reason=reason)
         if status == VOICED:

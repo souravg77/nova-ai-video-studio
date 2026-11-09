@@ -6,7 +6,9 @@ Every change goes through ``performance.characters`` so the identity rules
 unlocks are logged) hold here exactly as they do in tests.
 
 Designs can only be uploaded for now: no image engine ships in this build,
-so the Generate button stays disabled and says why.
+so the Generate button stays disabled and says why. The same holds for
+reference views (turnaround and expressions): the user adds an image per
+view, and an empty view stays empty on the reference sheet.
 """
 from __future__ import annotations
 
@@ -104,6 +106,26 @@ class CharacterStudioPanel(QWidget):
         r3.addWidget(self.lock_btn); r3.addWidget(self.unlock_btn)
         iv.addLayout(r3)
         rv.addWidget(id_box)
+        views_box = QGroupBox("Reference views and sheet"); wv = QVBoxLayout(views_box)
+        self.view_combo = QComboBox()
+        self.view_combo.currentIndexChanged.connect(lambda _i: self._update_view_buttons())
+        wv.addWidget(self.view_combo)
+        r4 = QHBoxLayout()
+        self.view_add_btn = QPushButton("Add image to view…")
+        self.view_add_btn.clicked.connect(self._pick_view_image)
+        self.view_clear_btn = QPushButton("Remove")
+        self.view_clear_btn.clicked.connect(self._clear_view)
+        r4.addWidget(self.view_add_btn); r4.addWidget(self.view_clear_btn)
+        wv.addLayout(r4)
+        self.sheet_btn = QPushButton("Make reference sheet")
+        self.sheet_btn.setToolTip("Lays out the approved design, its views, "
+                                  "palette and approval stamp as one image. "
+                                  "Without an approved design it is marked DRAFT.")
+        self.sheet_btn.clicked.connect(self.make_sheet)
+        wv.addWidget(self.sheet_btn)
+        self.views_note = QLabel(""); self.views_note.setWordWrap(True)
+        wv.addWidget(self.views_note)
+        rv.addWidget(views_box)
         voice_box = QGroupBox("Voice"); vv = QVBoxLayout(voice_box)
         self.voice_combo = QComboBox()
         self.voice_combo.currentIndexChanged.connect(lambda _i: self._voice_picked())
@@ -162,6 +184,7 @@ class CharacterStudioPanel(QWidget):
         self.cand_list.blockSignals(False)
         self.upload_btn.setEnabled(c is not None)
         self._show_voice(c)
+        self._show_views(c)
         self._show_candidate()
 
     def _show_voice(self, c: Optional[ident.Character]) -> None:
@@ -185,6 +208,80 @@ class CharacterStudioPanel(QWidget):
         self.voice_combo.blockSignals(False)
         self.voice_note.setText("" if choices else
                                 "No voices are installed. Add one in Voice Studio.")
+
+    def _show_views(self, c: Optional[ident.Character]) -> None:
+        keep = self.view_combo.currentData()
+        self.view_combo.blockSignals(True)
+        self.view_combo.clear()
+        for slot, text in view.view_rows(c):
+            self.view_combo.addItem(text, slot)
+        idx = self.view_combo.findData(keep)
+        self.view_combo.setCurrentIndex(idx if idx >= 0 else
+                                        (0 if self.view_combo.count() else -1))
+        self.view_combo.blockSignals(False)
+        self.views_note.setText(view.views_hint(c))
+        self.sheet_btn.setEnabled(c is not None)
+        self._update_view_buttons()
+
+    def _update_view_buttons(self) -> None:
+        from ..sheets.views import view_path
+        c = self.current_character()
+        slot = self.view_combo.currentData()
+        editable = bool(c and c.approved and not c.locked and slot)
+        self.view_combo.setEnabled(bool(c and c.approved))
+        self.view_add_btn.setEnabled(editable)
+        self.view_clear_btn.setEnabled(editable and bool(view_path(c, slot)))
+
+    def set_view_image(self, slot: str, path: Path) -> bool:
+        from ..sheets import views as sv
+        c = self.current_character()
+        if c is None:
+            return False
+        dest = self.media_dir / c.id if self.media_dir else None
+        try:
+            stored = view.copy_into_project(Path(path), dest, "view-" + slot.replace(":", "-"))
+        except ValueError as exc:
+            QMessageBox.warning(self, "Character Studio", str(exc))
+            return False
+        ok = self._apply(sv.set_view, slot, stored)
+        if ok:
+            i = self.view_combo.findData(slot)
+            if i >= 0:
+                self.view_combo.setCurrentIndex(i)
+        return ok
+
+    def _pick_view_image(self) -> None:
+        slot = self.view_combo.currentData()
+        if not slot:
+            return
+        f, _ = QFileDialog.getOpenFileName(
+            self, "Choose an image for this view", "",
+            "Images (*.png *.jpg *.jpeg *.webp)")
+        if f:
+            self.set_view_image(slot, Path(f))
+
+    def _clear_view(self) -> None:
+        from ..sheets import views as sv
+        slot = self.view_combo.currentData()
+        if slot:
+            self._apply(sv.clear_view, slot)
+
+    def make_sheet(self):
+        """Render the reference sheet; returns its SheetReport (or None)."""
+        from ..sheets.compose import render_sheet
+        c = self.current_character()
+        if c is None:
+            return None
+        out = view.sheet_path(self.media_dir, c)
+        try:
+            rep = render_sheet(c, out, getattr(self.project, "name", ""))
+        except Exception as exc:  # Pillow / disk errors reach the user
+            QMessageBox.warning(self, "Character Studio",
+                                f"Could not make the reference sheet: {exc}")
+            return None
+        self.last_sheet = rep
+        self.views_note.setText(view.sheet_summary(rep))
+        return rep
 
     def _voice_picked(self) -> None:
         data = self.voice_combo.currentData()

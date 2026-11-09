@@ -46,6 +46,8 @@ SCRIPT = textwrap.dedent('''
     # Characters mode is mounted at start-up with the real panels.
     perf = tabs.widget(win._tab_index["characters"])
     out["perf_tabs"] = [perf.tabText(i) for i in range(perf.count())]
+    out["generate_enabled"] = perf.generate.generate_btn.isEnabled()
+    out["generate_blockers"] = perf.generate.blocker_label.text()
     out["perf_video_engines"] = [perf.shots.engine_combos["video"].itemText(i)
                                  for i in range(perf.shots.engine_combos["video"].count())]
     perf.characters.name_edit.setText("Maya"); perf.characters.add_btn.click()
@@ -132,7 +134,10 @@ def test_workspace_shell_end_to_end(tmp_path):
     assert out["unknown_mode_rejected"]
     assert out["switched"] == "Storyboard (not built yet)"
 
-    assert out["perf_tabs"] == ["Character Studio", "Shot plan"]
+    assert out["perf_tabs"] == ["Character Studio", "Shot plan", "Generate", "Scene"]
+    # Cloud generation is off by default: Generate says so and sends nothing.
+    assert not out["generate_enabled"]
+    assert "switched off" in out["generate_blockers"]
     assert out["perf_video_engines"][0] == "(none)"
     assert "switched off" in out["perf_video_engines"][1]
     assert out["character_in_project"] == ["Maya"]
