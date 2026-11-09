@@ -102,7 +102,7 @@ class MainWindow(QMainWindow):
         right = QWidget()
         rv = QVBoxLayout(right)
 
-        hw_box = QGroupBox("Hardware & capability")
+        hw_box = QGroupBox("Hardware && capability")
         hv = QVBoxLayout(hw_box)
         self.hw_label = QLabel("Scanning…")
         self.hw_label.setWordWrap(True)
@@ -196,7 +196,7 @@ class MainWindow(QMainWindow):
         rv.addWidget(voice_box)
 
         # ---- Identity & Motion Studio (Phase 4) ----
-        p4_box = QGroupBox("Identity & Motion Studio (talking head)")
+        p4_box = QGroupBox("Identity && Motion Studio (talking head)")
         p4 = QVBoxLayout(p4_box)
         self.p4_status = QLabel("")
         self.p4_status.setWordWrap(True)
@@ -232,7 +232,7 @@ class MainWindow(QMainWindow):
         rvv.addWidget(self.cancel_btn)
         rv.addWidget(render_box)
 
-        jobs_box = QGroupBox("Job status & notices")
+        jobs_box = QGroupBox("Job status && notices")
         jv = QVBoxLayout(jobs_box)
         self.job_log = QTextEdit(); self.job_log.setReadOnly(True)
         jv.addWidget(self.job_log)

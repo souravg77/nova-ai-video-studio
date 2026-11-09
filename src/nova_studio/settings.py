@@ -43,6 +43,10 @@ class AppSettings(BaseModel):
     models_dir: Optional[str] = None
     cloud: CloudSettings = Field(default_factory=CloudSettings)
     local_video: LocalVideoSettings = Field(default_factory=LocalVideoSettings)
+    # Workspace window layout (Qt saveGeometry/saveState, base64), so panels
+    # reopen where the user left them.
+    workspace_geometry: Optional[str] = None
+    workspace_state: Optional[str] = None
 
 
 GEMINI_KEY_ENV = "NOVA_GEMINI_API_KEY"

@@ -41,6 +41,8 @@ hiddenimports += [
     "nova_studio.ui.main_window",
     "nova_studio.ui.voice_panel",
     "nova_studio.ui.setup_dialog",
+    "nova_studio.ui.workspace",
+    "nova_studio.ui.workspace_logic",
     "nova_studio.core.setup_check",
     "nova_studio.settings",
     "nova_studio.core.studio",

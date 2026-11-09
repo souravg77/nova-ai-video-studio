@@ -116,8 +116,19 @@ def _esc_drawtext(text: str) -> str:
 
 class Renderer:
     def __init__(self, ffmpeg: Optional[str] = None) -> None:
-        self.ffmpeg = ffmpeg or ffmpeg_path()
+        # Resolved on first use, not here: NOVA must still start (and show
+        # Setup & diagnostics) on a PC without FFmpeg. A render then fails
+        # with FFmpegNotFound, which the job queue reports as the reason.
+        self._ffmpeg = ffmpeg
         self._fontfile = _find_system_font()
+
+    @property
+    def ffmpeg(self) -> str:
+        return self._ffmpeg or ffmpeg_path()
+
+    @ffmpeg.setter
+    def ffmpeg(self, value: Optional[str]) -> None:
+        self._ffmpeg = value
 
     # ------------------------------------------------------------------
     def _caption_filter(self, caption: str, height: int) -> str:
