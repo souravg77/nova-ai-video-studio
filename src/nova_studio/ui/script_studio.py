@@ -65,15 +65,40 @@ class _SuggestWorker(QObject):
             self.finished.emit(None, f"{type(exc).__name__}: {exc}")
 
 
+class _ExportWorker(QObject):
+    finished = Signal(object, str)   # (AnimaticReport | None, error)
+
+    def __init__(self, export: Callable[[], object]) -> None:
+        super().__init__()
+        self.export = export
+
+    def run(self) -> None:
+        try:
+            self.finished.emit(self.export(), "")
+        except Exception as exc:
+            self.finished.emit(None, f"{type(exc).__name__}: {exc}")
+
+
 class ScriptStudioPanel(QWidget):
     def __init__(self, project, models_dir: Path,
-                 on_changed: Callable[[], None] = lambda: None) -> None:
+                 on_changed: Callable[[], None] = lambda: None,
+                 export_dir: Optional[Path] = None,
+                 audio_dir: Optional[Path] = None,
+                 renderer_factory: Optional[Callable[[], object]] = None) -> None:
         super().__init__()
         self.project = project
         self.models_dir = Path(models_dir)
         self.on_changed = on_changed
+        # Animatic export: where the MP4 goes, where voiced takes live, and
+        # how to get a renderer. Export is offered only when all three exist.
+        self.export_dir = Path(export_dir) if export_dir else None
+        self.audio_dir = Path(audio_dir) if audio_dir else None
+        self.renderer_factory = renderer_factory
         self._thread: Optional[QThread] = None
         self._worker: Optional[_SuggestWorker] = None
+        self._export_thread: Optional[QThread] = None
+        self._export_worker: Optional[_ExportWorker] = None
+        self.last_animatic = None
         self._filling = False
 
         split = QSplitter(Qt.Horizontal)
@@ -121,9 +146,15 @@ class ScriptStudioPanel(QWidget):
         self.approve_btn.clicked.connect(self.approve_selected)
         self.plan_btn = QPushButton()
         self.plan_btn.clicked.connect(self.toggle_plan)
+        self.animatic_btn = QPushButton("Export animatic")
+        self.animatic_btn.setToolTip(
+            "A watchable cut of the plan: approved designs or title cards, the "
+            "recorded lines where they exist, subtitles for the rest.")
+        self.animatic_btn.clicked.connect(self.export_animatic)
         for b in (self.suggest_btn, self.cancel_btn, self.approve_btn):
             btns.addWidget(b)
         btns.addStretch(1)
+        btns.addWidget(self.animatic_btn)
         btns.addWidget(self.plan_btn)
         rv.addLayout(btns)
         self.status = QLabel()
@@ -151,6 +182,9 @@ class ScriptStudioPanel(QWidget):
         self.suggest_btn.setEnabled(bool(model) and bool(d.lines) and not locked and not running)
         self.suggest_btn.setToolTip(reason or f"Uses {Path(model).name} on this PC; nothing is sent online.")
         self.approve_btn.setEnabled(bool(d.lines) and not locked)
+        can_export = bool(self.project.shots) and self.export_dir is not None \
+            and self.renderer_factory is not None
+        self.animatic_btn.setEnabled(can_export and self._export_thread is None)
         if not d.lines and not d.breakdown_at:
             self.status.setText("Write or open a script, then break it down.")
         else:
@@ -299,8 +333,46 @@ class ScriptStudioPanel(QWidget):
         self.on_changed()
 
 
+    # ---- animatic ----------------------------------------------------------------
+    def export_animatic(self) -> None:
+        from ..director.animatic import build_animatic
+        from ..storage.asset_registry import safe_filename
+
+        out = self.export_dir / f"{safe_filename(self.project.name, 'film')}_animatic.mp4"
+        renderer = self.renderer_factory()
+        self._export_thread = QThread(self)
+        self._export_worker = _ExportWorker(lambda: build_animatic(
+            self.project, renderer, self.audio_dir, out))
+        self._export_worker.moveToThread(self._export_thread)
+        self._export_thread.started.connect(self._export_worker.run)
+        self._export_worker.finished.connect(self._exported)
+        self.animatic_btn.setEnabled(False)
+        self.status.setText("Exporting the animatic… (rendered on this PC)")
+        self._export_thread.start()
+
+    def _exported(self, rep, error: str) -> None:
+        self._export_thread.quit()
+        self._export_thread.wait()
+        self._export_thread = self._export_worker = None
+        self.last_animatic = rep
+        self.refresh()
+        if error:
+            self.status.setText(f"Animatic export failed: {error}")
+        else:
+            text = rep.summary()
+            if rep.ok:
+                text += f"\nSaved to {rep.output_path}"
+            self.status.setText(text)
+
+
 def mount_script(window) -> ScriptStudioPanel:
-    panel = ScriptStudioPanel(window.project, window.studio.config.paths.models,
-                              on_changed=window._poll_project)
+    paths = window.studio.config.paths
+    project_dir = paths.projects / window.project.id
+    panel = ScriptStudioPanel(
+        window.project, paths.models, on_changed=window._poll_project,
+        export_dir=project_dir,
+        # Same takes folder the Characters mode voices lines into.
+        audio_dir=project_dir / "dialogue",
+        renderer_factory=lambda: window.studio.renderer)
     window.set_tab_widget("script", panel)
     return panel

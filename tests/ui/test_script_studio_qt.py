@@ -86,6 +86,25 @@ SCRIPT = textwrap.dedent('''
     out["kept_mine"] = any(d.id == "mine" for d in p.dialogue)
     out["replaced_with_confirm"] = panel.break_down(confirm=lambda m: True)
     out["mine_gone"] = not any(d.id == "mine" for d in p.dialogue)
+    out["export_disabled_without_dir"] = not panel.animatic_btn.isEnabled()
+
+    # Animatic export through the button, with a fake renderer (no FFmpeg).
+    from nova_studio.media.renderer import RenderResult
+    class FakeRenderer:
+        ffmpeg = "unused"
+        def render(self, spec, progress=None):
+            out["rendered_scenes"] = len(spec.scenes)
+            out["has_narration"] = spec.narration_path is not None
+            return RenderResult(True, spec.output_path, duration_s=9.5)
+    panel2 = ss.ScriptStudioPanel(p, models, export_dir=models / "exports",
+                                  audio_dir=models / "dialogue",
+                                  renderer_factory=FakeRenderer)
+    out["export_enabled"] = panel2.animatic_btn.isEnabled()
+    panel2.export_animatic()
+    t0 = time.time()
+    while panel2._export_thread is not None and time.time() - t0 < 20:
+        app.processEvents(); time.sleep(0.02)
+    out["export_status"] = panel2.status.text()
     print("RESULT " + json.dumps(out))
 ''')
 
@@ -126,3 +145,9 @@ def test_script_mode_end_to_end(tmp_path):
     assert out["plan_approved"] is True and out["breakdown_locked"]
     assert out["refused_without_confirm"] is False and out["kept_mine"]
     assert out["replaced_with_confirm"] and out["mine_gone"]
+
+    assert out["export_disabled_without_dir"] and out["export_enabled"]
+    assert out["rendered_scenes"] >= 2 and out["has_narration"] is False
+    assert "Animatic exported" in out["export_status"]
+    assert "shown as text only (no audio)" in out["export_status"]   # nothing voiced
+    assert "_animatic.mp4" in out["export_status"]
