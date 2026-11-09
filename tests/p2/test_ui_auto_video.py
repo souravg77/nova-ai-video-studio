@@ -90,6 +90,8 @@ class _FakeStudio:
         self.report = _FakeReport()
 
     def new_project(self, name): return self.project
+
+    def open_recent_project(self, name): return self.project
     def save_project(self, p): pass
     def refresh_pipeline(self): pass
 

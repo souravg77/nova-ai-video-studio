@@ -38,7 +38,8 @@ def test_status_never_claims_training_and_labels_placeholders():
     assert "not a trained model" in view.REFERENCE_NOTE
     assert "train" not in view.readiness_text(c).lower()
     row = view.candidate_row(c, c.candidates[0])
-    assert "APPROVED" in row and "placeholder" in row and "batch 1" in row
+    assert row.startswith("Design 1:") and "APPROVED" in row
+    assert "placeholder" in row and "batch 1" in row
 
 
 def test_buttons_follow_identity_rules():
@@ -67,6 +68,17 @@ def test_uploads_must_be_real_images(tmp_path):
         view.uploaded_candidate(tmp_path / "notes.txt")
     with pytest.raises(ValueError, match="does not exist"):
         view.uploaded_candidate(tmp_path / "gone.png")
+
+
+def test_uploads_are_copied_into_the_project(tmp_path):
+    img = tmp_path / "Maya Front.PNG"; img.write_bytes(b"\x89PNG")
+    dest = tmp_path / "project" / "characters" / "maya"
+    cand = view.uploaded_candidate(img, dest)
+    stored = Path(cand.image_path)
+    assert stored.parent == dest and stored.suffix == ".png"
+    assert stored.read_bytes() == b"\x89PNG"
+    img.unlink()                       # the original going away is harmless
+    assert stored.exists()
 
 
 def test_lines_and_plan_text():

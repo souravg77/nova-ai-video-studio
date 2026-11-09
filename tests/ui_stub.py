@@ -41,10 +41,15 @@ def install_qt_stub() -> None:
         Horizontal = 1
         Vertical = 2
         UserRole = 256
+        ScrollBarAlwaysOff = 1
 
     class _Callable:
         def __call__(self, *a, **k): return None
         def connect(self, *a, **k): return None
+
+    class _Size:
+        def width(self): return 0
+        def height(self): return 0
 
     class _W:
         def __init__(self, *a, **k):
@@ -56,6 +61,9 @@ def install_qt_stub() -> None:
             self._plain = ""
         def __getattr__(self, name):
             return _Callable()
+        def minimumSizeHint(self): return _Size()
+        def sizeHint(self): return _Size()
+        def verticalScrollBar(self): return _W()
         def setEnabled(self, v): self._enabled = v
         def isEnabled(self): return self._enabled
         def setText(self, t): self._text = t
@@ -103,7 +111,7 @@ def install_qt_stub() -> None:
         "QHBoxLayout", "QLabel", "QLineEdit", "QListWidget", "QMainWindow",
         "QProgressBar", "QPushButton", "QSpinBox", "QSplitter", "QTableWidget",
         "QTableWidgetItem", "QTextEdit", "QPlainTextEdit", "QVBoxLayout",
-        "QWidget", "QApplication",
+        "QWidget", "QApplication", "QScrollArea",
     ]
     for n in widget_names:
         setattr(qtwidgets, n, type(n, (_W,), {}))

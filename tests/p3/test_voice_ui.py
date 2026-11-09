@@ -57,6 +57,8 @@ class _FakeStudio:
                                       "target_height": 720, "target_fps": 24})()
 
     def new_project(self, name): return self.project
+
+    def open_recent_project(self, name): return self.project
     def save_project(self, p): pass
     def refresh_pipeline(self): pass
     def effective_profile(self, req):

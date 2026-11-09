@@ -70,7 +70,7 @@ sp.add_shot_btn.click()
 assert project.shots[0].character_ids == ["maya"]
 sp.line_edit.setText("Hello there."); sp.add_line_btn.click()
 assert project.shots[0].dialogue_line_ids == [project.dialogue[0].id]
-assert "Blocked" in sp.plan_label.text() and "switched off" in sp.plan_label.text()
+assert "Blocked" in sp.plan_text.toPlainText() and "switched off" in sp.plan_text.toPlainText()
 sp.pin_btn.click()
 pin = project.shots[0].pins[0]
 assert pin.character_id == "maya" and pin.version == 1

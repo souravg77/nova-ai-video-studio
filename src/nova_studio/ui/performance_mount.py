@@ -36,14 +36,15 @@ def default_engines(studio) -> tuple[list, list]:
 class PerformanceTab(QTabWidget):
     def __init__(self, project, engines: Callable[[], tuple[list, list]],
                  on_changed: Callable[[], None] = lambda: None,
-                 voicer=None, audio_dir=None) -> None:
+                 voicer=None, audio_dir=None, media_dir=None) -> None:
         super().__init__()
         self._engines = engines
         voices, extra = engines()
         self._voices = voices
         self.characters = CharacterStudioPanel(
             project, on_changed=on_changed,
-            voice_choices=lambda: voice_choices(self._voices))
+            voice_choices=lambda: voice_choices(self._voices),
+            media_dir=media_dir)
         self.shots = ShotPlanPanel(project, build_registry(voices, extra),
                                    on_changed=on_changed, voicer=voicer,
                                    audio_dir=audio_dir)
@@ -68,9 +69,10 @@ def mount_performance(window) -> PerformanceTab:
     paths = window.studio.config.paths
     tab = PerformanceTab(
         window.project, lambda: default_engines(window.studio),
-        on_changed=window._poll_project,
+        on_changed=lambda: (window.save_project(), window._poll_project()),
         voicer=DialogueVoicer(paths.models / TTS_SUBDIR),
-        audio_dir=paths.projects / window.project.id / "dialogue")
+        audio_dir=paths.projects / window.project.id / "dialogue",
+        media_dir=paths.projects / window.project.id / "characters")
     window.set_tab_widget("characters", tab)
     key = window._tab_index["characters"]
     window.tabs.currentChanged.connect(
