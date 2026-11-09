@@ -43,7 +43,7 @@ def main() -> int:
     _ensure_ffmpeg_on_path()
     # Import after PATH is set so the media layer sees the bundled FFmpeg.
     from nova_studio.app import main as app_main
-    return app_main([sys.argv[0]])
+    return app_main(sys.argv)
 
 
 if __name__ == "__main__":

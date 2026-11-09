@@ -6,6 +6,7 @@ import pytest
 
 from nova_studio.phase4.still_video import (ExportConfig, PhotoScene,
                                            StillVideoExporter)
+from nova_studio.media.probe import ffprobe_path
 from nova_studio.voice.engine import EngineCapabilities
 from nova_studio.voice.narration import VoiceProfile
 
@@ -50,7 +51,7 @@ def test_full_export_with_narration_and_subs(photos, tmp_path, fake_piper):
     assert r.has_audio and r.has_subtitles
     # Three streams present.
     streams = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type",
+        [ffprobe_path(), "-v", "error", "-show_entries", "stream=codec_type",
          "-of", "default=nw=1", str(out)], capture_output=True, text=True).stdout
     assert "video" in streams and "audio" in streams and "subtitle" in streams
 
@@ -88,6 +89,7 @@ def test_captions_only_export(photos, tmp_path):
     assert "skipped" in narr.message.lower()
 
 
+@pytest.mark.ffmpeg
 def test_missing_photo_blocks(tmp_path):
     exp = StillVideoExporter()
     r = exp.export([PhotoScene("/does/not/exist.png")], tmp_path / "work",

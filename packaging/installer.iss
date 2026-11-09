@@ -1,7 +1,8 @@
 ; Inno Setup script for NOVA AI Video Studio (Windows 11 x64).
 ; Build with: ISCC.exe packaging\installer.iss
-; Expects the PyInstaller onedir output at dist\NOVA-Studio\ and, optionally,
-; a bundled FFmpeg at packaging\ffmpeg\ (ffmpeg.exe, ffprobe.exe).
+; Expects the PyInstaller onedir output at dist\NOVA-Studio\ (the PySide6 app
+; from packaging\nova_studio.spec) and a verified FFmpeg at packaging\ffmpeg\
+; (ffmpeg.exe, ffprobe.exe, LICENSE.txt).
 ;
 ; Produces: packaging\Output\NOVA-Setup.exe
 
@@ -44,12 +45,16 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 [Files]
 ; The entire PyInstaller onedir bundle.
 Source: "{#DistDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
-; Bundled FFmpeg (optional). If packaging\ffmpeg\ffmpeg.exe exists it is shipped
-; next to the app exe, where win_launcher.py finds it. 'skipifsourcedoesntexist'
-; makes this harmless when FFmpeg is installed separately.
-Source: "ffmpeg\ffmpeg.exe"; DestDir: "{app}"; Flags: skipifsourcedoesntexist
-Source: "ffmpeg\ffprobe.exe"; DestDir: "{app}"; Flags: skipifsourcedoesntexist
-Source: "ffmpeg\*.txt"; DestDir: "{app}\ffmpeg-licenses"; Flags: skipifsourcedoesntexist recursesubdirs
+; Bundled FFmpeg, shipped next to the app exe where NOVA looks first.
+; REQUIRED: compilation fails if it is missing, so an installer can never ship
+; without a working renderer again (scripts\verify_ffmpeg.ps1 runs first and
+; rejects package-manager shims). Build with /DNoFfmpeg only for a deliberately
+; FFmpeg-less package that relies on a system FFmpeg.
+#ifndef NoFfmpeg
+Source: "ffmpeg\ffmpeg.exe"; DestDir: "{app}"
+Source: "ffmpeg\ffprobe.exe"; DestDir: "{app}"
+Source: "ffmpeg\LICENSE.txt"; DestDir: "{app}\ffmpeg-licenses"
+#endif
 
 [Icons]
 Name: "{group}\{#AppShortName}"; Filename: "{app}\{#AppExeName}"

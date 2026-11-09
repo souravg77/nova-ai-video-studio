@@ -241,7 +241,10 @@ def _annotate_ram_warning(report: HardwareReport) -> None:
 
 def _detect_backends() -> list[str]:
     """Report only runtimes that actually import. Never assume from GPU name."""
-    backends = ["ffmpeg"] if shutil.which("ffmpeg") else []
+    # Same lookup the renderer uses (override -> bundled -> PATH, verified),
+    # so a bundled FFmpeg counts and a broken shim on PATH does not.
+    from ..media.probe import check_tool
+    backends = ["ffmpeg"] if check_tool("ffmpeg").ok and check_tool("ffprobe").ok else []
     for mod, label in (("openvino", "openvino-cpu"),
                        ("torch", "torch")):
         try:

@@ -8,6 +8,8 @@
       2. Fetch a static FFmpeg build (ffmpeg.exe + ffprobe.exe) and bundle it,
          unless -NoFfmpeg is given or they already exist.
       3. Run PyInstaller (onedir, windowed) -> dist\NOVA-Studio\.
+         Builds the PySide6 desktop app (packaging\nova_studio.spec). Pass
+         -Dashboard to build the alternative web-dashboard UI instead.
       4. Run Inno Setup (ISCC) -> packaging\Output\NOVA-Setup.exe.
 
     Prerequisites on the build machine (Windows 11 x64):
@@ -18,10 +20,12 @@
     Usage:
       powershell -ExecutionPolicy Bypass -File scripts\build_exe.ps1
       powershell -ExecutionPolicy Bypass -File scripts\build_exe.ps1 -NoFfmpeg
+      powershell -ExecutionPolicy Bypass -File scripts\build_exe.ps1 -Dashboard
 #>
 [CmdletBinding()]
 param(
     [switch]$NoFfmpeg,
+    [switch]$Dashboard,
     [string]$PythonVersion = "3.12"
 )
 $ErrorActionPreference = 'Stop'
@@ -38,9 +42,15 @@ if (-not (Test-Path $venv)) {
 }
 $py = Join-Path $venv "Scripts\python.exe"
 & $py -m pip install --upgrade pip | Out-Null
-# Dashboard app deps (Flask + waitress + pywebview) + the engine + PyInstaller.
-& $py -m pip install -r requirements\webapp.txt pyinstaller
+# PySide6 desktop app deps (or the dashboard's Flask/pywebview deps) + PyInstaller.
+$reqs = if ($Dashboard) { "requirements\webapp.txt" } else { "requirements\desktop.txt" }
+& $py -m pip install -r $reqs pyinstaller
 if ($LASTEXITCODE -ne 0) { throw "Dependency install failed." }
+# Local script LLM runtime: best effort, bundled by the spec only if present.
+& $py -m pip install "llama-cpp-python>=0.2.70"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "  llama-cpp-python unavailable; script generation will report it as not installed."
+}
 
 # --- 2. FFmpeg -------------------------------------------------------------
 $ffdir = Join-Path $root "packaging\ffmpeg"
@@ -74,6 +84,13 @@ if (-not $NoFfmpeg) {
         if (Test-Path $lic) { Copy-Item $lic (Join-Path $ffdir "LICENSE.txt") }
         Write-Host "  FFmpeg bundled at $ffdir"
     }
+    # Refuse shims or broken binaries (an earlier installer shipped a
+    # Chocolatey shim that could not render on any user's PC).
+    & powershell -NoProfile -ExecutionPolicy Bypass `
+        -File (Join-Path $PSScriptRoot "verify_ffmpeg.ps1") -Dir $ffdir
+    if ($LASTEXITCODE -ne 0) {
+        throw "Bundled FFmpeg failed verification. Delete $ffdir and re-run to fetch a fresh build."
+    }
 } else {
     Write-Host "  Skipping FFmpeg bundle (-NoFfmpeg). The app will require a" `
         "system FFmpeg on PATH."
@@ -84,7 +101,8 @@ Section "PyInstaller"
 if (Test-Path (Join-Path $root "dist\NOVA-Studio")) {
     Remove-Item -Recurse -Force (Join-Path $root "dist\NOVA-Studio")
 }
-& $py -m PyInstaller packaging\nova_studio_dashboard.spec --noconfirm --clean
+$spec = if ($Dashboard) { "packaging\nova_studio_dashboard.spec" } else { "packaging\nova_studio.spec" }
+& $py -m PyInstaller $spec --noconfirm --clean
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed." }
 $exe = Join-Path $root "dist\NOVA-Studio\NOVA-Studio.exe"
 if (-not (Test-Path $exe)) { throw "Expected $exe was not produced." }
@@ -105,7 +123,9 @@ if (-not $iscc) {
     throw "Inno Setup (ISCC.exe) not found. Install Inno Setup 6 from " +
           "https://jrsoftware.org/isinfo.php and re-run."
 }
-& $iscc packaging\installer.iss
+$isccArgs = @()
+if ($NoFfmpeg) { $isccArgs += "/DNoFfmpeg" }
+& $iscc @isccArgs packaging\installer.iss
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed." }
 
 $setup = Join-Path $root "packaging\Output\NOVA-Setup.exe"

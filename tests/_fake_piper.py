@@ -30,7 +30,7 @@ try:
     sys.stdin.read()
 except Exception:
     pass
-subprocess.run(["ffmpeg", "-y", "-f", "lavfi",
+subprocess.run([FFMPEG, "-y", "-f", "lavfi",
                 "-i", "sine=frequency=220:duration=1.5", "-ar", "22050", out],
                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 '''
@@ -38,13 +38,15 @@ subprocess.run(["ffmpeg", "-y", "-f", "lavfi",
 
 def install_fake_piper(tmp_path: Path, monkeypatch) -> Path:
     """Put a working 'piper' on PATH (Windows + POSIX). Returns the launcher."""
-    from shutil import which
-    if not which("ffmpeg"):
+    from nova_studio.media.probe import check_tool
+    ffmpeg = check_tool("ffmpeg").path
+    if not ffmpeg:
         pytest.skip("ffmpeg required for fake piper")
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
     shim = bindir / "piper_shim.py"
-    shim.write_text(_PIPER_PY)
+    # Use the same FFmpeg NOVA resolved (it may come from an override, not PATH).
+    shim.write_text(f"FFMPEG = {ffmpeg!r}\n" + _PIPER_PY)
     if os.name == "nt":
         launcher = bindir / "piper.bat"
         launcher.write_text(f'@echo off\r\n"{sys.executable}" "{shim}" %*\r\n')

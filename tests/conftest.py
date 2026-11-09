@@ -20,8 +20,25 @@ def app_config(workspace: Path) -> AppConfig:
 
 
 def _ffmpeg() -> str | None:
-    from shutil import which
-    return which("ffmpeg")
+    # Use the app's own lookup (override -> bundled -> PATH) so tests see
+    # exactly the FFmpeg NOVA would use, and never a broken shim.
+    from nova_studio.media.probe import check_tool
+    return check_tool("ffmpeg").path
+
+
+def _ffmpeg_ready() -> bool:
+    from nova_studio.media.probe import check_tool
+    return check_tool("ffmpeg").ok and check_tool("ffprobe").ok
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip @pytest.mark.ffmpeg tests cleanly when FFmpeg/FFprobe are absent."""
+    if _ffmpeg_ready():
+        return
+    skip = pytest.mark.skip(reason="ffmpeg/ffprobe not available")
+    for item in items:
+        if "ffmpeg" in item.keywords:
+            item.add_marker(skip)
 
 
 @pytest.fixture

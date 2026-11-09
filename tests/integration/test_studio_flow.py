@@ -50,6 +50,7 @@ def test_full_render_flow(app_config, assets):
         s.shutdown()
 
 
+@pytest.mark.ffmpeg
 def test_import_rejects_bad_file(app_config, tmp_path):
     s = Studio(app_config)
     try:

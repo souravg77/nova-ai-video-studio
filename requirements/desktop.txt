@@ -1,0 +1,10 @@
+-r ui.txt
+# NOVA desktop app (PySide6) runtime, as shipped by the installer.
+# Phase 4 photo intake/preparation (image quality, crop/align).
+Pillow>=10.0
+opencv-python-headless>=4.8
+# Live CPU meter.
+psutil>=5.9
+# Local script LLM runtime (Qwen2.5 GGUF) is installed best-effort by the build
+# and bundled only if present:
+#   pip install llama-cpp-python

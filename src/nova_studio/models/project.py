@@ -53,6 +53,9 @@ class Scene(BaseModel):
 
 
 class Project(BaseModel):
+    # Manifest schema version (see storage/migrations.py). Old manifests
+    # without it are migrated forward on load before validation.
+    schema_version: int = 1
     id: str = Field(default_factory=_uid)
     name: str = "Untitled Project"
     created_at: str = Field(default_factory=_now)

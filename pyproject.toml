@@ -34,4 +34,5 @@ markers = [
     "offline: tests that must pass with no network",
     "export: tests that render real media via FFmpeg",
     "integration: multi-component tests",
+    "ffmpeg: needs a working ffmpeg + ffprobe; skipped cleanly when absent",
 ]

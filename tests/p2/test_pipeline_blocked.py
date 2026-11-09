@@ -1,6 +1,8 @@
 """Pipeline reports the SPECIFIC blocker, never simulates success."""
 from pathlib import Path
 
+import pytest
+
 from nova_studio.core.capability import CapabilityManager
 from nova_studio.core.pipeline import AutoVideoPipeline
 from nova_studio.models.hardware_report import HardwareReport
@@ -14,6 +16,7 @@ def _cap(installed):
                              installed_capabilities=installed)
 
 
+@pytest.mark.ffmpeg
 def test_blocks_at_script_when_no_model(tmp_path):
     cap = _cap(installed=set())  # nothing installed
     pipe = AutoVideoPipeline(cap)
@@ -29,6 +32,7 @@ def test_blocks_at_script_when_no_model(tmp_path):
     assert result.suggested_fallback
 
 
+@pytest.mark.ffmpeg
 def test_blocks_at_tts_when_script_ok_but_no_voice(tmp_path, stub_llama,
                                                    fake_gguf):
     from nova_studio.adapters.llm import ScriptAdapter

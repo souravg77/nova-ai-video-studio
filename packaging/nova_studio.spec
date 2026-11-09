@@ -14,7 +14,7 @@ to the exe where the launcher finds it.
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 # Repo root = parent of this packaging/ dir. SPECPATH is provided by PyInstaller.
 ROOT = Path(SPECPATH).resolve().parent
@@ -39,13 +39,28 @@ hiddenimports += ["platformdirs"]
 hiddenimports += [
     "nova_studio.app",
     "nova_studio.ui.main_window",
+    "nova_studio.ui.voice_panel",
     "nova_studio.core.studio",
+    "nova_studio.phase4.still_video",
+    # Imported lazily by phase4 photo intake/prep and the CPU meter.
+    "PIL", "cv2", "psutil",
 ]
+binaries = []
+
+# Bundle the optional local script-LLM runtime only when installed (same rule
+# as the dashboard build), so script generation keeps working in the exe.
+try:
+    _lc_datas, _lc_bins, _lc_hidden = collect_all("llama_cpp")
+    datas += _lc_datas
+    binaries += _lc_bins
+    hiddenimports += _lc_hidden
+except Exception:
+    pass
 
 a = Analysis(
     [str(SRC / "nova_studio" / "win_launcher.py")],
     pathex=[str(SRC)],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
