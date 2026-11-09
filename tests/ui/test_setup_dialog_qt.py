@@ -40,8 +40,10 @@ SCRIPT = textwrap.dedent('''
     dlg = SetupDialog(studio, first_run=True)
     out["n_items"] = len(dlg.items)
     out["keys"] = [i.key for i in dlg.items]
+    from nova_studio.core.setup_check import module_available
+    out["gemini_in_build"] = module_available("nova_studio.adapters.gemini_omni")
     out["gemini_widget_enabled"] = dlg.gemini_check.isEnabled()
-    out["gemini_checked"] = dlg.gemini_check.isChecked()
+    out["gemini_checked_by_default"] = dlg.gemini_check.isChecked()
     out["preview_widget_enabled"] = dlg.preview_check.isEnabled()
     out["default_models"] = dlg.collect_settings().models_dir
     out["min_width"] = dlg.minimumSizeHint().width()
@@ -50,8 +52,11 @@ SCRIPT = textwrap.dedent('''
 
     dlg2 = SetupDialog(studio)
     dlg2.models_edit.setText(str(ws / "elsewhere"))
+    if dlg2.gemini_check.isEnabled():
+        dlg2.gemini_check.setChecked(True)
     dlg2.accept()
     out["saved_models"] = load_settings(ws).models_dir
+    out["saved_gemini"] = load_settings(ws).cloud.gemini_enabled
     out["restart_needed"] = dlg2.restart_needed
     print("RESULT " + json.dumps(out))
 ''')
@@ -80,9 +85,12 @@ def test_setup_dialog_end_to_end(tmp_path):
     assert out["n_items"] >= 8
     for key in ("hardware", "ffmpeg", "workspace", "models_dir", "offline", "gemini"):
         assert key in out["keys"]
-    # The Gemini adapter ships now: a real switch, off by default.
-    assert out["gemini_widget_enabled"] is True and out["gemini_checked"] is False
-    # Engines that are not in this build are shown disabled, never as switches.
+    # The cloud switch is usable only when its engine is in this build, and is
+    # always off until the user turns it on. Engines not in this build are
+    # shown disabled, never as working switches.
+    assert out["gemini_widget_enabled"] is out["gemini_in_build"]
+    assert out["gemini_checked_by_default"] is False
+    assert out["saved_gemini"] is out["gemini_in_build"]
     assert out["preview_widget_enabled"] is False
     assert out["default_models"] is None
     # Long unwrappable text must not force the dialog wider than a laptop screen.

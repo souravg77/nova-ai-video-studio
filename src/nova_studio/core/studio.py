@@ -26,9 +26,10 @@ from .handlers import (make_auto_video_handler, make_photo_video_handler,
                       make_render_handler)
 from .hardware import collect_hardware_report
 from .job_queue import JobQueue
-from .model_resolver import ModelResolver
+from .model_resolver import ModelResolver, ensure_piper_on_path
 from .pipeline import AutoVideoPipeline
 from .preflight import check_render_space
+from ..storage.asset_registry import safe_filename
 from .recovery import recover_interrupted_jobs
 
 
@@ -45,6 +46,7 @@ class Studio:
         # is downloaded here.
         self.resolver = ModelResolver(self.config.paths.models)
         self.resolver.ensure_dirs()
+        ensure_piper_on_path(self.config.paths.models)
         self._refresh_capability()
         self.queue.register(JobKind.RENDER, make_render_handler(self.renderer))
         self.queue.register(
@@ -157,7 +159,7 @@ class Studio:
                        preset: Optional[str] = None) -> Job:
         out_dir = self.config.paths.projects / project.id
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = str(out_dir / f"{project.name or 'output'}.mp4")
+        out_path = str(out_dir / f"{safe_filename(project.name, 'output')}.mp4")
 
         # Storage preflight before spending resources (roadmap section 8).
         pf = check_render_space(self.config.paths.workspace)
@@ -170,7 +172,7 @@ class Studio:
         job = Job(project_id=project.id, kind=JobKind.RENDER,
                   params={"render_spec": _spec_to_dict(spec)})
         if listener:
-            self.queue.add_listener(listener)
+            self.queue.watch(job.id, listener)
         return self.queue.submit(job)
 
     def auto_video(self, project: Project, brief: str,
@@ -205,11 +207,11 @@ class Studio:
             "fps": project.target_fps,
             "preset": preset,
             "work_dir": str(out_dir / "pipeline"),
-            "output_path": str(out_dir / f"{project.name or 'auto_video'}.mp4"),
+            "output_path": str(out_dir / f"{safe_filename(project.name, 'auto_video')}.mp4"),
         }
         job = Job(project_id=project.id, kind=JobKind.AUTO_VIDEO, params=params)
         if listener:
-            self.queue.add_listener(listener)
+            self.queue.watch(job.id, listener)
         return self.queue.submit(job)
 
     def pipeline_readiness(self) -> dict:
@@ -329,11 +331,11 @@ class Studio:
             "config": config or {},
             "voice": voice,
             "work_dir": str(out_dir / "photo_video"),
-            "output_path": str(out_dir / f"{project.name or 'photo_video'}.mp4"),
+            "output_path": str(out_dir / f"{safe_filename(project.name, 'photo_video')}.mp4"),
         }
         job = Job(project_id=project.id, kind=JobKind.PHOTO_VIDEO, params=params)
         if listener:
-            self.queue.add_listener(listener)
+            self.queue.watch(job.id, listener)
         return self.queue.submit(job)
 
     def export_manifest(self, project: Project) -> Path:
@@ -347,6 +349,7 @@ class Studio:
 
     def refresh_pipeline(self) -> None:
         """Rebuild the pipeline after models are added or hardware rescanned."""
+        ensure_piper_on_path(self.config.paths.models)
         self._refresh_capability()
         self.queue.register(
             JobKind.AUTO_VIDEO,

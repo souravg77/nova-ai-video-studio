@@ -116,3 +116,28 @@ class ModelResolver:
     def resolve_stt_model(self) -> Optional[ResolvedModel]:
         models = self.list_stt_models()
         return _describe(models[0]) if models else None
+
+
+def piper_dirs(models_dir: str | Path) -> list[Path]:
+    """Folders where NOVA's own model downloader unpacks the Piper CLI."""
+    root = Path(models_dir) / TTS_SUBDIR / "piper"
+    return [root, root / "piper"]
+
+
+def ensure_piper_on_path(models_dir: str | Path) -> Optional[Path]:
+    """Make a Piper CLI installed under the models folder findable.
+
+    The downloader unpacks Piper to models/tts/piper/piper/piper.exe. Every
+    caller (TTS adapter, voice engine, auditions) looks Piper up on PATH, so
+    the desktop app reported "Piper not installed" although NOVA itself had
+    installed it. Returns the folder added, or None if Piper is not there.
+    """
+    import os
+    exe = "piper.exe" if os.name == "nt" else "piper"
+    current = os.environ.get("PATH", "").split(os.pathsep)
+    for d in piper_dirs(models_dir):
+        if (d / exe).is_file():
+            if str(d) not in current:
+                os.environ["PATH"] = str(d) + os.pathsep + os.environ.get("PATH", "")
+            return d
+    return None

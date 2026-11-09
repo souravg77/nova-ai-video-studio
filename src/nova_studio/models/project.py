@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from ..storage.migrations import PROJECT_SCHEMA_VERSION
 from ..performance.characters import Character
 from ..performance.planner import DialogueLine, EngineSelection, Shot
+from ..director.model import DirectorData
 
 
 def _uid() -> str:
@@ -81,6 +82,10 @@ class Project(BaseModel):
     dialogue: list[DialogueLine] = Field(default_factory=list)
     shots: list[Shot] = Field(default_factory=list)
     engine_selection: EngineSelection = Field(default_factory=EngineSelection)
+
+    # Script and its breakdown (schema v3): the source text, scenes, per-line
+    # direction and per-shot notes, keyed by the dialogue/shot ids above.
+    director: DirectorData = Field(default_factory=DirectorData)
 
     # Warnings/metadata stored so a project reopens honestly on other PCs.
     generation_notes: list[str] = Field(default_factory=list)

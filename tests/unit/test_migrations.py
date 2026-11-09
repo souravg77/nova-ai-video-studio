@@ -116,7 +116,7 @@ def _v1_manifest() -> dict:
 def test_v1_project_upgrades_to_v2_without_losing_scenes():
     from nova_studio.storage.sqlite_store import project_from_manifest
     p = project_from_manifest(_v1_manifest())
-    assert p.schema_version == 2
+    assert p.schema_version == PROJECT_SCHEMA_VERSION
     assert p.scenes[0].title == "Opening"
     assert p.characters == [] and p.shots == [] and p.engine_selection.video is None
 
@@ -146,6 +146,6 @@ def test_characters_and_pinned_shots_survive_save_and_reload(tmp_path):
     assert back.engine_selection.video == "gemini-omni-flash"
 
     out = export_project_manifest(back, tmp_path / "film.json")
-    assert json.loads(out.read_text())["schema_version"] == 2
+    assert json.loads(out.read_text())["schema_version"] == PROJECT_SCHEMA_VERSION
     assert "api_key" not in out.read_text().lower()
     assert load_project_manifest(out).character("maya").approved.version == 1

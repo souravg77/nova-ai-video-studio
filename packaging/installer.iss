@@ -8,7 +8,12 @@
 
 #define AppName "NOVA AI Video Studio"
 #define AppShortName "NOVA Studio"
-#define AppVersion "0.1.0"
+; Must equal APP_VERSION in src/nova_studio/config.py, pyproject.toml and
+; packaging/version_info.txt (tests/unit/test_release_metadata.py checks this).
+; A build may override it: ISCC /DAppVersion=0.1.1 packaging\installer.iss
+#ifndef AppVersion
+  #define AppVersion "0.1.0"
+#endif
 #define AppPublisher "NOVA Studio"
 #define AppExeName "NOVA-Studio.exe"
 ; Path to the PyInstaller onedir output (relative to this script).
@@ -18,6 +23,8 @@
 AppId={{B7A9F3C2-2E6A-4C1F-9E2D-7C1A8E2D0001}
 AppName={#AppName}
 AppVersion={#AppVersion}
+AppVerName={#AppName} {#AppVersion}
+VersionInfoVersion={#AppVersion}
 AppPublisher={#AppPublisher}
 DefaultDirName={autopf}\{#AppShortName}
 DefaultGroupName={#AppShortName}
@@ -35,6 +42,13 @@ LicenseFile=..\licenses\THIRD_PARTY_NOTICES.md
 DisableProgramGroupPage=yes
 ; Require Windows 10 1809+ / Windows 11.
 MinVersion=10.0.17763
+; Upgrades and uninstalls: ask Windows Restart Manager to close a running
+; NOVA first, so no file is locked half-way through. NOVA is not restarted
+; automatically afterwards (the final page offers to launch it).
+CloseApplications=yes
+RestartApplications=no
+; Upgrading keeps the folder the user chose last time.
+UsePreviousAppDir=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -79,4 +93,4 @@ Type: filesandordirs; Name: "{app}"
 
 [Messages]
 ; Shown on the welcome page.
-WelcomeLabel2=This will install {#AppName} on your computer.%n%nNOVA runs fully offline. Your projects and any models you add are kept in %LOCALAPPDATA%\NovaStudio and are not touched by uninstall.%n%nTalking-head video generation requires a compatible NVIDIA GPU; on other hardware NOVA produces narrated photo videos instead.
+WelcomeLabel2=This will install {#AppName} {#AppVersion} on your computer.%n%nNOVA works offline by default. Optional cloud engines are only used if you switch them on in NOVA's setup and diagnostics window.%n%nYour projects and any models you add are kept in %LOCALAPPDATA%\NovaStudio and are not touched by upgrades or uninstall. You can choose a different models folder when NOVA first starts.%n%nAI video generation needs a compatible NVIDIA GPU; on other hardware NOVA makes videos from your photos and footage instead.

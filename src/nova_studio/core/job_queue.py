@@ -40,6 +40,31 @@ class JobQueue:
     def add_listener(self, fn: Callable[[Job], None]) -> None:
         self._listeners.append(fn)
 
+    def remove_listener(self, fn: Callable[[Job], None]) -> None:
+        try:
+            self._listeners.remove(fn)
+        except ValueError:
+            pass
+
+    def watch(self, job_id: str, fn: Callable[[Job], None]) -> None:
+        """Call ``fn`` for updates of one job only, and stop after it ends.
+
+        Per-job callers (a render button, an auto-video run) used to register
+        a global listener that was never removed: every later job then
+        notified it too, so the UI saw other jobs' progress and duplicate
+        updates piled up with each run.
+        """
+        def scoped(job: Job) -> None:
+            if job.id != job_id:
+                return
+            try:
+                fn(job)
+            finally:
+                if job.state in (JobState.COMPLETED, JobState.FAILED,
+                                 JobState.CANCELLED):
+                    self.remove_listener(scoped)
+        self.add_listener(scoped)
+
     def _notify(self, job: Job) -> None:
         self.store.save_job(job)
         for fn in list(self._listeners):
