@@ -93,6 +93,11 @@ class GeneratePanel(QWidget):
             self.mode_combo.addItem(gr.MODE_LABELS[m], m)
         self.mode_combo.currentIndexChanged.connect(lambda _i: self._update())
         rv.addWidget(self.mode_combo)
+        self.mention_combo = QComboBox()
+        self.mention_combo.setToolTip("Insert @Name: that character's approved "
+                                      "design goes along as a reference.")
+        self.mention_combo.activated.connect(self._insert_mention)
+        rv.addWidget(self.mention_combo)
         self.prompt_edit = QPlainTextEdit()
         self.prompt_edit.setPlaceholderText(
             "Describe the shot: who, what happens, where, camera, light, sound.")
@@ -245,7 +250,25 @@ class GeneratePanel(QWidget):
         self.shot_list.blockSignals(False)
         self._show_shot()
 
+    def _fill_mentions(self) -> None:
+        self.mention_combo.blockSignals(True)
+        self.mention_combo.clear()
+        self.mention_combo.addItem("Mention a character…", None)
+        for c in self.project.characters:
+            self.mention_combo.addItem(f"@{c.name}" + ("" if c.approved else
+                                                       " (not approved)"), c.name)
+        self.mention_combo.setCurrentIndex(0)
+        self.mention_combo.blockSignals(False)
+
+    def _insert_mention(self, index: int) -> None:
+        name = self.mention_combo.itemData(index)
+        if name:
+            self.prompt_edit.insertPlainText(f"@{name} ")
+            self.prompt_edit.setFocus()
+        self.mention_combo.setCurrentIndex(0)
+
     def _show_shot(self) -> None:
+        self._fill_mentions()
         shot = self.current_shot()
         self.prompt_edit.blockSignals(True)
         self.prompt_edit.setPlainText(self._prompts.get(shot.id, "") if shot else "")

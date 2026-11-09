@@ -178,4 +178,20 @@ assert "Nothing is sent" in two.usage_label.text()
 assert two.generate(); two.wait()
 assert LocalEngine.runs == ["A quick preview."] and asked == []
 assert "local-test" in two.version_detail.text() and "SynthID" not in two.version_detail.text()
+
+# @mentions: the picker inserts the name; the approved design goes along.
+gp.shot_list.setCurrentRow(1)                     # shot-2 has no characters
+gp.mode_combo.setCurrentIndex(gp.mode_combo.findData("text"))
+gp.prompt_edit.setPlainText("")
+i = gp.mention_combo.findData("Maya")
+assert i > 0
+gp._insert_mention(i)
+assert gp.prompt_edit.toPlainText() == "@Maya " and gp.mention_combo.currentIndex() == 0
+gp.prompt_edit.insertPlainText("walks in.")
+calls.clear(); asked.clear()
+assert gp.generate_btn.isEnabled(), gp.blocker_label.text()
+gp.out_spin.setValue(1)
+assert gp.generate(); gp.wait()
+sent = calls[0]["input"]
+assert sent[0]["type"] == "image" and sent[-1]["text"].startswith("Maya walks in.")
 print("ok")
