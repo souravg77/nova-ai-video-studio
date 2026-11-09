@@ -65,6 +65,13 @@ Name: "{autodesktop}\{#AppShortName}"; Filename: "{app}\{#AppExeName}"; Tasks: d
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppShortName}"; Flags: nowait postinstall skipifsilent
 
+[InstallDelete]
+; Clear the previous build's bundled runtime before copying the new one.
+; Upgrading over an older NOVA (for example the earlier web-dashboard build)
+; would otherwise leave its stale DLLs and modules mixed into _internal.
+; User data in %LOCALAPPDATA%\NovaStudio is not touched.
+Type: filesandordirs; Name: "{app}\_internal"
+
 [UninstallDelete]
 ; Remove the app folder on uninstall. User data in %LOCALAPPDATA%\NovaStudio is
 ; intentionally LEFT in place (projects, models) unless the user removes it.

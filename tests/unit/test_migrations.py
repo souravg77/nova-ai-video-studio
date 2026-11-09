@@ -96,3 +96,9 @@ def test_newer_database_is_refused(tmp_path):
     conn.close()
     with pytest.raises(NewerSchemaError):
         ProjectStore(db)
+
+
+def test_new_project_records_current_schema_version():
+    from nova_studio.models.project import Project
+    from nova_studio.storage.migrations import PROJECT_SCHEMA_VERSION
+    assert Project().schema_version == PROJECT_SCHEMA_VERSION
