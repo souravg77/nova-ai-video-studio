@@ -239,6 +239,11 @@ def plan_shot(shot: Shot, ctx: PlanContext, registry: EngineRegistry) -> ShotPla
         if c is not None and not c.voice.voice_id:
             add(Severity.WARNING, "voice_profile",
                 f"{c.name} has no voice assigned in their profile yet.")
+        elif (c is not None and voice is not None and c.voice.engine_id
+              and c.voice.engine_id != voice.id):
+            add(Severity.WARNING, "voice_engine_mismatch",
+                f"{c.name}'s voice belongs to another engine; {voice.name} "
+                f"will need a voice chosen for them.")
         steps.append(PlanStep(
             engine_id=voice.id if voice else "-", operation=Operation.SYNTHESIZE_SPEECH,
             character_id=l.speaker_id, line_id=l.id,
