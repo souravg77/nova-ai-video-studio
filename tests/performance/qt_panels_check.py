@@ -94,3 +94,26 @@ assert "not installed" in cs3.voice_combo.currentText()
 assert "No voices are installed" in cs3.voice_note.text()
 assert project.character("maya").voice.voice_id == "en_US-amy-medium.onnx"
 print("ok")
+
+# Voicing from the shot plan: Maya's line uses her voice; nothing else is used.
+from nova_studio.adapters.base import AdapterResult
+from nova_studio.performance.voicing import DialogueVoicer
+
+class _TTS:
+    def __init__(self, p): self.p = p
+    def run(self, params):
+        Path(params["out_path"]).write_bytes(b"RIFF")
+        return AdapterResult(True, metrics={"duration_s": 1.0})
+
+vdir = tmp / "tts"; vdir.mkdir()
+(vdir / "en_US-amy-medium.onnx").write_bytes(b"x")
+audio = tmp / "dialogue"
+sp2 = ShotPlanPanel(project, EngineRegistry([omni.spec()]),
+                    voicer=DialogueVoicer(vdir, _TTS), audio_dir=audio)
+assert sp2.voice_btn.isEnabled()
+sp2.voice_btn.click()
+assert [t.ok for t in sp2.last_takes] == [True]
+assert "Voiced 1 of 1" in sp2.voice_label.text()
+assert (audio / "takes.json").exists()
+assert not ShotPlanPanel(project, EngineRegistry([])).voice_btn.isEnabled()
+print("ok")
