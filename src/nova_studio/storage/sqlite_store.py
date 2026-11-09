@@ -15,6 +15,8 @@ from typing import Optional
 from ..models.benchmark import BenchmarkResult
 from ..models.job import Job
 from ..models.project import Project
+from .migrations import (PROJECT_SCHEMA_VERSION, migrate_db,
+                         migrate_project_manifest)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -58,6 +60,7 @@ class ProjectStore:
         with self._lock:
             self._conn.executescript(_SCHEMA)
             self._conn.commit()
+            migrate_db(self._conn)
 
     def close(self) -> None:
         with self._lock:
@@ -100,7 +103,7 @@ class ProjectStore:
             "SELECT manifest FROM projects WHERE id=?", (project_id,))
         if not row:
             return None
-        return Project.model_validate_json(row["manifest"])
+        return project_from_manifest(json.loads(row["manifest"]))
 
     def list_projects(self) -> list[dict]:
         rows = self._fetchall(
@@ -170,8 +173,20 @@ class ProjectStore:
         return latest
 
 
+def project_from_manifest(data: dict) -> Project:
+    """Validate a manifest dict after migrating it to the current schema."""
+    return Project.model_validate(migrate_project_manifest(data))
+
+
+def load_project_manifest(path: str | Path) -> Project:
+    """Open an exported project manifest, migrating older versions forward."""
+    return project_from_manifest(json.loads(Path(path).read_text(encoding="utf-8")))
+
+
 def export_project_manifest(project: Project, path: str | Path) -> Path:
     """Write a portable JSON manifest (section 8: projects portable across PCs)."""
     p = Path(path)
-    p.write_text(json.dumps(project.model_dump(), indent=2))
+    data = project.model_dump()
+    data["schema_version"] = PROJECT_SCHEMA_VERSION
+    p.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return p
